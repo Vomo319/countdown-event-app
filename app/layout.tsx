@@ -10,8 +10,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
+  title: 'Waiting For',
+  description: 'Track what matters. Count down to events that excite you.',
   generator: 'v0.app',
   icons: {
     icon: [
@@ -33,10 +33,14 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
   colorScheme: 'light dark',
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: 'white' },
-    { media: '(prefers-color-scheme: dark)', color: 'black' },
+    { media: '(prefers-color-scheme: light)', color: '#F7F7F5' },
+    { media: '(prefers-color-scheme: dark)', color: '#111110' },
   ],
 }
 
