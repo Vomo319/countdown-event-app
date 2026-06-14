@@ -10,9 +10,15 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Waiting For',
-  description: 'Track what matters. Count down to events that excite you.',
+  title: 'Waiting For - Your Countdown Companion',
+  description: 'Count down to the moments that matter most. Your best friend for anticipation.',
   generator: 'v0.app',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Waiting For',
+  },
   icons: {
     icon: [
       {
@@ -51,6 +57,28 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
+      <head>
+        <meta name="theme-color" content="#5B5BD6" media="(prefers-color-scheme: light)" />
+        <meta name="theme-color" content="#7B7BF5" media="(prefers-color-scheme: dark)" />
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="Waiting For" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                  navigator.serviceWorker.register('/sw.js').catch(err => {
+                    console.log('[v0] Service Worker registration failed:', err);
+                  });
+                });
+              }
+            `,
+          }}
+        />
+      </head>
       <body className="font-sans antialiased">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}

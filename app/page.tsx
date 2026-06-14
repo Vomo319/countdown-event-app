@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { InstallPrompt } from "./components/InstallPrompt";
 
 // ---------- Types ----------
 type Category = "personal" | "milestone" | "travel" | "holiday";
@@ -870,10 +871,10 @@ function AddEditScreen({
         <button
           onClick={handleSave}
           disabled={!title.trim()}
-          className={`w-full py-[14px] rounded-[16px] text-[17px] font-semibold tracking-tight transition-colors ${
+          className={`w-full py-[14px] rounded-[16px] text-[17px] font-semibold tracking-tight transition-colors cursor-pointer ${
             title.trim()
               ? "bg-[var(--accent)] text-white active:opacity-90"
-              : "bg-[var(--border)] text-[var(--text-tertiary)]"
+              : "bg-[var(--border)] text-[var(--text-tertiary)] cursor-not-allowed opacity-50"
           }`}
         >
           {editing ? "Save Changes" : "Add Event"}
@@ -1430,6 +1431,8 @@ export default function WaitingForApp() {
             onClose={() => setView("settings")}
           />
         )}
+
+        <InstallPrompt />
       </div>
     </div>
   );
