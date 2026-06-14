@@ -41,6 +41,12 @@ const COLOR_SWATCHES: { name: string; light: string; dark: string }[] = [
   { name: "Slate", light: "#64748B", dark: "#94A3B8" },
 ];
 
+const EMOJI_OPTIONS = [
+  "🎂", "🎉", "✈️", "🏖️", "🎓", "💍", "🏠", "🎁",
+  "🎵", "⚽", "🏔️", "🌍", "🎬", "📚", "💼", "🌸",
+  "🦋", "⭐", "🌙", "☀️", "🍾", "🎯", "🏆", "💫",
+];
+
 // ---------- Helpers ----------
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
