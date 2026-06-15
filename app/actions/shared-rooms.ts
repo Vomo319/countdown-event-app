@@ -1,99 +1,78 @@
 'use server'
 
-import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { headers } from 'next/headers'
+import { shared_rooms } from '@/lib/db/schema'
+import { eq } from 'drizzle-orm'
 import { v4 as uuidv4 } from 'uuid'
 
-// Generate a random 6-character room code
+// Generate a random 6-character room code like "WF-X7K2M"
 function generateRoomCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  let code = 'WF-'
+  let code = ''
   for (let i = 0; i < 6; i++) {
     code += chars.charAt(Math.floor(Math.random() * chars.length))
   }
-  return code
+  return `WF-${code}`
 }
 
-async function getUserId() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) throw new Error('Unauthorized')
-  return session.user.id
-}
-
-export async function createSharedRoom(eventData: {
-  eventTitle: string
-  eventEmoji: string
-  eventDate: string
-  category?: string
-  color?: string
-}) {
-  const userId = await getUserId()
-  
-  let roomCode: string
-  let isUnique = false
-  
-  // Generate unique room code
-  while (!isUnique) {
-    roomCode = generateRoomCode()
-    // Check if code exists
-    const existing = await db.query(
-      'SELECT id FROM shared_rooms WHERE room_code = $1',
-      [roomCode]
-    )
-    isUnique = existing.rows.length === 0
+// Create a shareable room for an event (no auth required)
+export async function createSharedRoom(
+  eventTitle: string,
+  eventEmoji: string,
+  eventDate: Date,
+  category?: string,
+  color?: string,
+  creatorId?: string
+) {
+  try {
+    const roomCode = generateRoomCode()
+    const id = uuidv4()
+    
+    const newRoom = await db
+      .insert(shared_rooms)
+      .values({
+        id,
+        room_code: roomCode,
+        creator_id: creatorId || 'anonymous',
+        event_title: eventTitle,
+        event_emoji: eventEmoji,
+        event_date: eventDate,
+        category,
+        color,
+        created_at: new Date(),
+        view_count: 0,
+      })
+      .returning()
+    
+    return { success: true, room: newRoom[0] }
+  } catch (error) {
+    console.error('[v0] Failed to create shared room:', error)
+    return { success: false, error: 'Failed to create shared room' }
   }
-  
-  const roomId = uuidv4()
-  const createdAt = new Date().toISOString()
-  
-  // Insert into database
-  await db.query(
-    `INSERT INTO shared_rooms 
-     (id, room_code, creator_id, event_title, event_emoji, event_date, category, color, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [
-      roomId,
-      roomCode,
-      userId,
-      eventData.eventTitle,
-      eventData.eventEmoji,
-      eventData.eventDate,
-      eventData.category || null,
-      eventData.color || null,
-      createdAt
-    ]
-  )
-  
-  return { roomId, roomCode }
 }
 
+// Get a shared room by code (public - no auth needed)
 export async function getSharedRoom(roomCode: string) {
-  const result = await db.query(
-    'SELECT * FROM shared_rooms WHERE room_code = $1',
-    [roomCode]
-  )
-  
-  if (result.rows.length === 0) {
-    throw new Error('Room not found')
+  try {
+    const room = await db
+      .select()
+      .from(shared_rooms)
+      .where(eq(shared_rooms.room_code, roomCode))
+      .limit(1)
+    
+    if (room.length === 0) {
+      return { success: false, error: 'Room not found' }
+    }
+    
+    // Increment view count
+    await db
+      .update(shared_rooms)
+      .set({ view_count: (room[0].view_count || 0) + 1 })
+      .where(eq(shared_rooms.id, room[0].id))
+    
+    return { success: true, room: room[0] }
+  } catch (error) {
+    console.error('[v0] Failed to get shared room:', error)
+    return { success: false, error: 'Failed to retrieve room' }
   }
-  
-  // Increment view count
-  await db.query(
-    'UPDATE shared_rooms SET view_count = view_count + 1 WHERE room_code = $1',
-    [roomCode]
-  )
-  
-  return result.rows[0]
-}
-
-export async function getUserSharedRooms() {
-  const userId = await getUserId()
-  
-  const result = await db.query(
-    'SELECT * FROM shared_rooms WHERE creator_id = $1 ORDER BY created_at DESC',
-    [userId]
-  )
-  
-  return result.rows
 }

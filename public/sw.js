@@ -5,6 +5,40 @@ const STATIC_ASSETS = [
   '/styles',
 ];
 
+// Notification messages for different feelings
+const NOTIFICATION_TEMPLATES = {
+  excited: [
+    'The big day is almost here!',
+    'Your excitement is justified — keep that energy!',
+    'Can you feel it? It\'s coming!',
+  ],
+  nervous: [
+    'Take a deep breath. You\'ve got this.',
+    'Remember why you\'re looking forward to this.',
+    'A little nervousness means it matters.',
+  ],
+  hopeful: [
+    'Hope looks good on you.',
+    'Keep believing — it\'s going to be beautiful.',
+    'Every day brings you closer to your dream.',
+  ],
+  grateful: [
+    'You\'re so lucky to have this to look forward to.',
+    'Gratitude makes the wait sweeter.',
+    'Appreciate the anticipation.',
+  ],
+  anxious: [
+    'It\'s okay to feel anxious. You\'re prepared.',
+    'Ground yourself in this moment.',
+    'One day at a time.',
+  ],
+  joyful: [
+    'Your joy is contagious!',
+    'This countdown is a celebration.',
+    'So much to look forward to!',
+  ],
+};
+
 // Install event
 self.addEventListener('install', (event) => {
   console.log('[v0] Service Worker installing...');
@@ -68,4 +102,44 @@ self.addEventListener('fetch', (event) => {
         });
       })
   );
+});
+
+// Notification click handler
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window' }).then((clientList) => {
+      // Focus existing window if available
+      for (const client of clientList) {
+        if (client.url === '/' && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Open new window if none exists
+      if (clients.openWindow) {
+        return clients.openWindow('/');
+      }
+    })
+  );
+});
+
+// Background notification handler for scheduled notifications
+self.addEventListener('push', (event) => {
+  if (event.data) {
+    const data = event.data.json();
+    const options = {
+      body: data.message || 'It\'s countdown time!',
+      icon: '/icon.svg',
+      badge: '/icon.svg',
+      tag: data.eventId || 'countdown-notification',
+      requireInteraction: false,
+      data: {
+        eventId: data.eventId,
+      },
+    };
+
+    event.waitUntil(
+      self.registration.showNotification(data.title || 'Waiting For', options)
+    );
+  }
 });
