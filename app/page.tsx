@@ -10,6 +10,7 @@ import { ContextualSuggestionsComponent as ContextualSuggestions } from "./compo
 import { DuoModeComponent as DuoMode } from "./components/DuoMode";
 import { TimeOfDayCountdown } from "./components/TimeOfDayCountdown";
 import { YearInReviewComponent as YearInReview } from "./components/YearInReview";
+import { saveEvent, deleteEvent as deleteEventDb, getEvents } from "./actions/events";
 
 // ---------- Types ----------
 type Category = "personal" | "milestone" | "travel" | "holiday";
@@ -159,40 +160,119 @@ function useTheme() {
 function useEvents() {
   const [events, setEvents] = useState<CountdownEvent[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [sessionId] = useState(() => {
+    // Generate a unique session ID for this browser session
+    if (typeof window !== 'undefined') {
+      let sid = sessionStorage.getItem('countdown_session_id');
+      if (!sid) {
+        sid = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        sessionStorage.setItem('countdown_session_id', sid);
+      }
+      return sid;
+    }
+    return `session_${Date.now()}`;
+  });
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed: CountdownEvent[] = JSON.parse(stored);
-        parsed.sort((a, b) => a.eventDate.localeCompare(b.eventDate));
-        setEvents(parsed);
+    const loadEvents = async () => {
+      try {
+        // Try to load from database first
+        const result = await getEvents(sessionId);
+        if (result.success && result.events) {
+          const sorted = result.events.sort((a, b) => 
+            a.eventDate instanceof Date 
+              ? (new Date(a.eventDate) as any) - (new Date(b.eventDate) as any)
+              : (a.eventDate as any).localeCompare((b.eventDate as any))
+          );
+          setEvents(sorted);
+        } else {
+          // Fallback to localStorage if database fails
+          const stored = localStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            const parsed: CountdownEvent[] = JSON.parse(stored);
+            parsed.sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+            setEvents(parsed);
+          }
+        }
+      } catch (error) {
+        console.log('[v0] Error loading events, trying localStorage');
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const parsed: CountdownEvent[] = JSON.parse(stored);
+          parsed.sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+          setEvents(parsed);
+        }
+      } finally {
+        setLoaded(true);
       }
-    } catch {}
-    setLoaded(true);
-  }, []);
+    };
+    
+    loadEvents();
+  }, [sessionId]);
 
-  const persist = (next: CountdownEvent[]) => {
+  const persist = async (next: CountdownEvent[]) => {
     const sorted = [...next].sort((a, b) => a.eventDate.localeCompare(b.eventDate));
     setEvents(sorted);
+    // Save to localStorage as backup
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
   };
 
-  const addEvent = (data: Omit<CountdownEvent, "id" | "createdAt">) => {
+  const addEvent = async (data: Omit<CountdownEvent, "id" | "createdAt">) => {
     const newEvent: CountdownEvent = {
       ...data,
       id: generateId(),
       createdAt: new Date().toISOString(),
     };
-    persist([...events, newEvent]);
+    
+    // Save to database
+    await saveEvent({
+      id: newEvent.id,
+      title: newEvent.title,
+      emoji: newEvent.emoji,
+      eventDate: new Date(newEvent.eventDate),
+      notes: newEvent.notes,
+      photo: newEvent.photo,
+      category: newEvent.category,
+      recurring: newEvent.recurring,
+      color: newEvent.color,
+    }, sessionId).catch(err => {
+      console.log('[v0] Database save failed, using localStorage');
+    });
+    
+    await persist([...events, newEvent]);
   };
 
-  const updateEvent = (id: string, updates: Partial<CountdownEvent>) => {
-    persist(events.map((e) => (e.id === id ? { ...e, ...updates } : e)));
+  const updateEvent = async (id: string, updates: Partial<CountdownEvent>) => {
+    const updated = events.map((e) => (e.id === id ? { ...e, ...updates } : e));
+    
+    // Find the updated event
+    const updatedEvent = updated.find(e => e.id === id);
+    if (updatedEvent) {
+      await saveEvent({
+        id: updatedEvent.id,
+        title: updatedEvent.title,
+        emoji: updatedEvent.emoji,
+        eventDate: new Date(updatedEvent.eventDate),
+        notes: updatedEvent.notes,
+        photo: updatedEvent.photo,
+        category: updatedEvent.category,
+        recurring: updatedEvent.recurring,
+        color: updatedEvent.color,
+      }, sessionId).catch(err => {
+        console.log('[v0] Database update failed, using localStorage');
+      });
+    }
+    
+    await persist(updated);
   };
 
-  const deleteEvent = (id: string) => {
-    persist(events.filter((e) => e.id !== id));
+  const deleteEvent = async (id: string) => {
+    // Delete from database
+    await deleteEventDb(id, sessionId).catch(err => {
+      console.log('[v0] Database delete failed, using localStorage');
+    });
+    
+    await persist(events.filter((e) => e.id !== id));
   };
 
   return { events, loaded, addEvent, updateEvent, deleteEvent };
