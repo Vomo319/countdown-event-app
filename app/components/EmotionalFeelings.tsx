@@ -1,74 +1,71 @@
 'use client'
 
-import { useState } from 'react'
-import { Heart, Smile, AlertCircle, Sparkles, Zap } from 'lucide-react'
+import { useState, useEffect } from 'react'
 
-const FEELINGS = [
-  { id: 'excited', label: 'Excited', icon: Sparkles, color: 'bg-amber-100 text-amber-700 dark:bg-amber-900' },
-  { id: 'nervous', label: 'Nervous', icon: AlertCircle, color: 'bg-blue-100 text-blue-700 dark:bg-blue-900' },
-  { id: 'hopeful', label: 'Hopeful', icon: Heart, color: 'bg-rose-100 text-rose-700 dark:bg-rose-900' },
-  { id: 'grateful', label: 'Grateful', icon: Smile, color: 'bg-green-100 text-green-700 dark:bg-green-900' },
-  { id: 'anxious', label: 'Anxious', icon: Zap, color: 'bg-orange-100 text-orange-700 dark:bg-orange-900' },
-  { id: 'joyful', label: 'Joyful', icon: Heart, color: 'bg-purple-100 text-purple-700 dark:bg-purple-900' },
-]
-
-interface FeelingsProps {
+interface EmotionalFeelingsProps {
   eventId: string
-  selectedFeelings?: string[]
-  onFeelingsChange?: (feelings: string[]) => void
+  isDark: boolean
 }
 
+const FEELINGS = [
+  { emoji: '🤗', label: 'Excited', value: 'excited' },
+  { emoji: '😰', label: 'Nervous', value: 'nervous' },
+  { emoji: '🙏', label: 'Grateful', value: 'grateful' },
+  { emoji: '😌', label: 'Hopeful', value: 'hopeful' },
+  { emoji: '😟', label: 'Anxious', value: 'anxious' },
+  { emoji: '😊', label: 'Joyful', value: 'joyful' },
+]
+
 export function EmotionalFeelingsComponent({
-  selectedFeelings = [],
-  onFeelingsChange,
-}: FeelingsProps) {
-  const [feelings, setFeelings] = useState<string[]>(selectedFeelings)
+  eventId,
+  isDark,
+}: EmotionalFeelingsProps) {
+  const [selectedFeeling, setSelectedFeeling] = useState<string>('')
 
-  const toggleFeeling = (feelingId: string) => {
-    const updated = feelings.includes(feelingId)
-      ? feelings.filter((f) => f !== feelingId)
-      : [...feelings, feelingId]
-    setFeelings(updated)
-    onFeelingsChange?.(updated)
-  }
+  useEffect(() => {
+    // Load feeling from localStorage
+    const stored = localStorage.getItem(`event-feeling-${eventId}`)
+    if (stored) {
+      setSelectedFeeling(stored)
+    }
+  }, [eventId])
 
-  const getAccentColorFromFeeling = () => {
-    if (feelings.includes('excited') || feelings.includes('joyful')) return 'from-amber-400 to-rose-400'
-    if (feelings.includes('nervous') || feelings.includes('anxious')) return 'from-blue-400 to-orange-400'
-    if (feelings.includes('hopeful')) return 'from-rose-400 to-purple-400'
-    if (feelings.includes('grateful')) return 'from-green-400 to-emerald-400'
-    return 'from-violet-400 to-cyan-400'
+  const handleSelectFeeling = (value: string) => {
+    setSelectedFeeling(value)
+    localStorage.setItem(`event-feeling-${eventId}`, value)
   }
 
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-lg p-4 border border-[var(--border)]">
-      <div className="mb-4">
-        <h3 className="font-semibold text-[var(--text-primary)] mb-2">How are you feeling about this?</h3>
-        <p className="text-sm text-[var(--text-secondary)]">Your emotions shape the app's tone and colors</p>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2 mb-4">
-        {FEELINGS.map(({ id, label, icon: Icon, color }) => (
-          <button
-            key={id}
-            onClick={() => toggleFeeling(id)}
-            className={`flex flex-col items-center gap-1 p-3 rounded-lg transition-all ${
-              feelings.includes(id)
-                ? `${color} ring-2 ring-offset-2 ring-[var(--accent)]`
-                : 'bg-[var(--background-secondary)] text-[var(--text-secondary)] hover:bg-[var(--border)]'
-            }`}
-          >
-            <Icon size={20} />
-            <span className="text-xs font-medium text-center">{label}</span>
-          </button>
-        ))}
-      </div>
-
-      {feelings.length > 0 && (
-        <div className={`rounded-lg p-3 bg-gradient-to-r ${getAccentColorFromFeeling()} text-white text-sm font-medium text-center`}>
-          We'll match your emotions with calming or celebratory vibes
+    <div className="space-y-6 pb-8">
+      <div className="bg-[var(--surface)] rounded-[20px] p-6 border border-[var(--border)]">
+        <h3 className="text-[17px] font-semibold text-[var(--text)] mb-2">How are you feeling?</h3>
+        <p className="text-[13px] text-[var(--text-tertiary)] mb-4">Your emotions shape how we celebrate this moment</p>
+        
+        <div className="grid grid-cols-3 gap-2">
+          {FEELINGS.map((feeling) => (
+            <button
+              key={feeling.value}
+              onClick={() => handleSelectFeeling(feeling.value)}
+              className={`p-3 rounded-[14px] border-2 transition-all ${
+                selectedFeeling === feeling.value
+                  ? 'border-[var(--accent)] bg-[var(--accent)]/10'
+                  : 'border-[var(--border)] hover:border-[var(--accent)]/50'
+              }`}
+            >
+              <div className="text-[28px] mb-1">{feeling.emoji}</div>
+              <div className="text-[11px] font-medium text-[var(--text)] text-center">{feeling.label}</div>
+            </button>
+          ))}
         </div>
-      )}
+
+        {selectedFeeling && (
+          <div className="mt-4 p-3 bg-[var(--accent)]/10 border border-[var(--accent)]/30 rounded-[12px]">
+            <p className="text-[13px] text-[var(--text)] text-center">
+              Feeling {FEELINGS.find(f => f.value === selectedFeeling)?.label.toLowerCase()} about this! Saved ✓
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
