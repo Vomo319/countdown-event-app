@@ -1,126 +1,106 @@
 'use client'
 
-import { Lightbulb, CheckCircle2 } from 'lucide-react'
-import { useState, useMemo } from 'react'
-
 interface ContextualSuggestionsProps {
-  category: string
+  eventId: string
+  category?: string
   daysRemaining: number
+  isDark: boolean
 }
 
-const SUGGESTIONS_BY_CATEGORY: Record<string, Record<number, string[]>> = {
-  Travel: {
-    30: ['Check passport expiration date', 'Book flights and accommodation', 'Look up visa requirements'],
-    14: ['Start packing essentials', 'Check weather forecast', 'Notify your bank of travel dates'],
-    7: ['Arrange airport transport', 'Download offline maps', 'Set up travel notifications'],
-    3: ['Pack final items', 'Confirm flight times', 'Take out travel insurance'],
-    1: ['Do final packing', 'Charge all devices', 'Leave travel details with someone'],
+const SUGGESTIONS_BY_CATEGORY: Record<string, Record<string, string>> = {
+  travel: {
+    '30': 'Book your flights now for best prices',
+    '14': 'Check passport expiration dates',
+    '7': 'Reserve rental cars or transportation',
+    '3': 'Pack your luggage',
+    '1': 'Set alarms and check weather',
   },
-  Birthday: {
-    30: ['Pick a gift', 'Plan a celebration', 'Make reservations if needed'],
-    14: ['Order cake or food', 'Send invitations', 'Plan the menu'],
-    7: ['Confirm RSVPs', 'Pick up supplies', 'Prepare decorations'],
-    3: ['Final food prep', 'Set up decorations', 'Wrap gifts'],
-    1: ['Get ready to celebrate!', 'Set up the venue', 'Cook or warm up food'],
+  birthday: {
+    '30': 'Plan the party or celebration',
+    '14': 'Send out invitations',
+    '7': 'Buy or order a gift',
+    '3': 'Confirm RSVPs',
+    '1': 'Prepare decorations',
   },
-  Wedding: {
-    90: ['Book venue and caterer', 'Set wedding date', 'Create budget'],
-    60: ['Order invitations', 'Book photographer', 'Start dress shopping'],
-    30: ['Finalize guest list', 'Order flowers', 'Book honeymoon'],
-    14: ['Final dress fittings', 'Confirm all vendors', 'Create seating chart'],
-    7: ['Final guest confirmations', 'Rehearsal dinner', 'Break in your shoes'],
-    1: ['Get manicure/pedicure', 'Prepare vows', 'Confirm morning timeline'],
+  wedding: {
+    '90': 'Book your venue',
+    '60': 'Send save-the-dates',
+    '30': 'Finalize guest list',
+    '14': 'Order wedding attire',
+    '7': 'Confirm all arrangements',
+    '3': 'Final headcount',
+    '1': 'Get rest and stay calm',
   },
-  Graduation: {
-    30: ['Order cap and gown', 'Plan celebration party', 'Arrange travel if needed'],
-    14: ['Confirm graduation time', 'Order announcements', 'Plan outfit'],
-    7: ['Prepare thank you notes', 'Arrange photos', 'Confirm with family'],
-    3: ['Set up graduation space', 'Prepare remarks', 'Gather supplies'],
-    1: ['Get ready to celebrate!', 'Prepare camera', 'Enjoy your achievement'],
+  graduation: {
+    '30': 'Prepare your speech or remarks',
+    '14': 'Arrange transportation for guests',
+    '7': 'Organize regalia and attire',
+    '3': 'Invite friends and family',
+    '1': 'Get good sleep',
   },
-  Holidays: {
-    30: ['Start gift shopping', 'Plan holiday menu', 'Book reservations'],
-    14: ['Finish gift shopping', 'Decorate', 'Prep food ingredients'],
-    7: ['Ship gifts', 'Wrap presents', 'Final menu prep'],
-    3: ['Last-minute shopping', 'Clean house', 'Final preparations'],
-    1: ['Enjoy the holidays!', 'Set the mood', 'Relax and celebrate'],
+  holiday: {
+    '30': 'Plan your itinerary',
+    '14': 'Book accommodations',
+    '7': 'Shop and prepare',
+    '3': 'Clean and organize',
+    '1': 'Pack and prepare',
   },
-  Milestones: {
-    30: ['Plan how to celebrate', 'Share the news', 'Make reservations'],
-    14: ['Prepare for the day', 'Invite close ones', 'Plan activities'],
-    7: ['Final preparations', 'Confirm attendees', 'Set up space'],
-    3: ['Get ready to celebrate', 'Prepare decorations', 'Cook or order food'],
-    1: ['This is your day!', 'Embrace the moment', 'Make memories'],
-  },
+}
+
+function getSuggestion(category?: string, daysRemaining?: number): string | null {
+  if (!category || daysRemaining === undefined) return null
+  
+  const suggestions = SUGGESTIONS_BY_CATEGORY[category]
+  if (!suggestions) return null
+
+  const days = Math.max(0, daysRemaining)
+  const sortedDays = Object.keys(suggestions)
+    .map(Number)
+    .sort((a, b) => b - a)
+  
+  for (const day of sortedDays) {
+    if (days >= day) {
+      return suggestions[day.toString()]
+    }
+  }
+  
+  return Object.values(suggestions)[0]
 }
 
 export function ContextualSuggestionsComponent({
+  eventId,
   category,
   daysRemaining,
+  isDark,
 }: ContextualSuggestionsProps) {
-  const [completed, setCompleted] = useState<Set<string>>(new Set())
-
-  const suggestions = useMemo(() => {
-    const categoryMap = SUGGESTIONS_BY_CATEGORY[category] || SUGGESTIONS_BY_CATEGORY.Milestones
-
-    // Find the closest day threshold
-    const thresholds = Object.keys(categoryMap).map(Number).sort((a, b) => b - a)
-    const threshold = thresholds.find((t) => daysRemaining <= t) || thresholds[thresholds.length - 1]
-
-    return categoryMap[threshold] || []
-  }, [category, daysRemaining])
-
-  const toggleCompleted = (suggestion: string) => {
-    const newCompleted = new Set(completed)
-    if (newCompleted.has(suggestion)) {
-      newCompleted.delete(suggestion)
-    } else {
-      newCompleted.add(suggestion)
-    }
-    setCompleted(newCompleted)
-  }
+  const suggestion = getSuggestion(category, daysRemaining)
 
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-lg p-4 border border-[var(--border)]">
-      <div className="flex items-center gap-2 mb-4">
-        <Lightbulb size={20} className="text-[var(--accent)]" />
-        <h3 className="font-semibold text-[var(--text-primary)]">What to do now</h3>
-        <span className="text-xs text-[var(--text-secondary)] bg-[var(--background-secondary)] px-2 py-1 rounded">
-          {daysRemaining} days remaining
-        </span>
-      </div>
-
-      <div className="space-y-2">
-        {suggestions.map((suggestion, idx) => (
-          <button
-            key={idx}
-            onClick={() => toggleCompleted(suggestion)}
-            className={`w-full text-left flex items-start gap-3 p-3 rounded-lg transition-all ${
-              completed.has(suggestion)
-                ? 'bg-[var(--accent)]/10 opacity-60'
-                : 'bg-[var(--background-secondary)] hover:bg-[var(--border)]'
-            }`}
-          >
-            <div
-              className={`flex-shrink-0 mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
-                completed.has(suggestion)
-                  ? 'bg-[var(--accent)] border-[var(--accent)]'
-                  : 'border-[var(--border)] hover:border-[var(--accent)]'
-              }`}
-            >
-              {completed.has(suggestion) && <CheckCircle2 size={16} className="text-white" />}
+    <div className="space-y-6 pb-8">
+      <div className="bg-[var(--surface)] rounded-[20px] p-6 border border-[var(--border)]">
+        <h3 className="text-[17px] font-semibold text-[var(--text)] mb-4">Smart Tips</h3>
+        
+        {suggestion ? (
+          <div className="space-y-3">
+            <div className="p-4 bg-[var(--accent)]/10 border border-[var(--accent)]/30 rounded-[14px]">
+              <div className="text-[14px] text-[var(--text)] font-medium">💡 {suggestion}</div>
             </div>
-            <span
-              className={`text-sm font-medium ${
-                completed.has(suggestion)
-                  ? 'line-through text-[var(--text-secondary)]'
-                  : 'text-[var(--text-primary)]'
-              }`}
-            >
-              {suggestion}
-            </span>
-          </button>
-        ))}
+            
+            <div className="text-[13px] text-[var(--text-tertiary)]">
+              {daysRemaining && daysRemaining > 0 ? (
+                <p>You have {daysRemaining} day{daysRemaining !== 1 ? 's' : ''} to prepare</p>
+              ) : (
+                <p>Today's the day!</p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="p-4 bg-[var(--surface-secondary)] border border-[var(--border)] rounded-[14px] text-center">
+            <p className="text-[14px] text-[var(--text-secondary)]">
+              Add a category (travel, birthday, wedding, etc.) to get personalized tips.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   )
