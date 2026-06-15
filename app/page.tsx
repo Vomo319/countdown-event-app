@@ -2,6 +2,14 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { InstallPrompt } from "./components/InstallPrompt";
+import { ShareableRoomComponent as ShareableRoom } from "./components/ShareableRoom";
+import { EmotionalFeelingsComponent as EmotionalFeelings } from "./components/EmotionalFeelings";
+import { NotificationPreferencesComponent as NotificationPreferences } from "./components/NotificationPreferences";
+import { CountdownJourneyComponent as CountdownJourney } from "./components/CountdownJourney";
+import { ContextualSuggestionsComponent as ContextualSuggestions } from "./components/ContextualSuggestions";
+import { DuoModeComponent as DuoMode } from "./components/DuoMode";
+import { TimeOfDayCountdown } from "./components/TimeOfDayCountdown";
+import { YearInReviewComponent as YearInReview } from "./components/YearInReview";
 
 // ---------- Types ----------
 type Category = "personal" | "milestone" | "travel" | "holiday";
@@ -911,6 +919,7 @@ function DetailScreen({
   const isPast = days < 0 && event.recurring !== "yearly";
   const isToday = days === 0;
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [detailTab, setDetailTab] = useState<"overview" | "feelings" | "notifications" | "journey" | "suggestions" | "duo" | "time">("overview");
   const accentColor = getAccentColor(isDark, event.color);
   const hasPhoto = event.photo && event.photo.length > 0;
 
@@ -930,75 +939,149 @@ function DetailScreen({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 pt-8 pb-28">
-        {hasPhoto && (
-          <div className="mb-6 -mx-4">
-            <img src={event.photo} alt={event.title} className="w-full h-[192px] object-cover" style={{
-              mask: "linear-gradient(to bottom, black 0%, black 70%, transparent 100%)"
-            }} />
-          </div>
-        )}
-
-        <div className="flex flex-col items-center mb-8 animate-[fadeInUp_0.4s_ease]">
-          <span className="text-[52px] mb-4">{event.emoji}</span>
-          <h1 className="text-[26px] font-bold tracking-tight text-[var(--text)] text-center mb-2">
-            {event.title}
-          </h1>
-          <p className="text-[15px] text-[var(--text-tertiary)] tracking-tight text-center">
-            {formatEventDateLong(event.eventDate)}
-            {event.recurring === "yearly" && <span> · repeats yearly 🔁</span>}
-          </p>
-          {event.category && event.category !== "personal" && (
-            <div className="mt-3 px-3 py-1.5 bg-[var(--surface-secondary)] rounded-[10px] text-[12px] font-medium text-[var(--text-secondary)]">
-              {CATEGORIES.find(c => c.value === event.category)?.label}
-            </div>
-          )}
-        </div>
-
-        <div
-          className={`flex flex-col items-center rounded-[28px] border p-12 mb-4 animate-[fadeInUp_0.4s_ease_0.05s_backwards] ${
-            isToday ? "bg-[var(--accent-light)] border-[var(--accent)]/30" : "bg-[var(--surface)] border-[var(--border)]"
+      {/* Feature Tabs */}
+      <div className="px-2 pt-3 pb-2 overflow-x-auto flex gap-2 border-b border-[var(--border-subtle)]">
+        <button
+          onClick={() => setDetailTab("overview")}
+          className={`px-4 py-2 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap ${
+            detailTab === "overview"
+              ? "bg-[var(--accent)] text-white"
+              : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
           }`}
-          style={{ boxShadow: "0 4px 20px var(--shadow)" }}
         >
-          {isPast ? (
-            <>
-              <span className="text-[13px] font-medium uppercase tracking-wider text-[var(--text-tertiary)] mb-2">
-                happened
-              </span>
-              <CountdownNumber days={days} size="hero" customColor={isToday ? accentColor : undefined} />
-              <span className="text-[15px] font-medium tracking-tight text-[var(--text-tertiary)] mt-3">
-                days ago
-              </span>
-            </>
-          ) : isToday ? (
-            <>
-              <span className="text-[20px] font-semibold tracking-tight mb-2" style={{ color: accentColor }}>
-                🎉 Today!
-              </span>
-              <CountdownNumber days={0} size="hero" customColor={accentColor} />
-              <span className="text-[15px] font-medium tracking-tight mt-3" style={{ color: accentColor }}>
-                days away
-              </span>
-            </>
-          ) : (
-            <>
-              <CountdownNumber days={days} size="hero" customColor={isToday ? accentColor : undefined} />
-              <span className="text-[15px] font-medium tracking-tight text-[var(--text-secondary)] mt-3">
-                {days === 1 ? "day away" : "days away"}
-              </span>
-            </>
-          )}
-        </div>
+          Overview
+        </button>
+        <button
+          onClick={() => setDetailTab("feelings")}
+          className={`px-4 py-2 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap ${
+            detailTab === "feelings"
+              ? "bg-[var(--accent)] text-white"
+              : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
+          }`}
+        >
+          💭 Feelings
+        </button>
+        <button
+          onClick={() => setDetailTab("journey")}
+          className={`px-4 py-2 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap ${
+            detailTab === "journey"
+              ? "bg-[var(--accent)] text-white"
+              : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
+          }`}
+        >
+          🗺️ Journey
+        </button>
+        <button
+          onClick={() => setDetailTab("suggestions")}
+          className={`px-4 py-2 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap ${
+            detailTab === "suggestions"
+              ? "bg-[var(--accent)] text-white"
+              : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
+          }`}
+        >
+          💡 Tips
+        </button>
+        <button
+          onClick={() => setDetailTab("notifications")}
+          className={`px-4 py-2 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap ${
+            detailTab === "notifications"
+              ? "bg-[var(--accent)] text-white"
+              : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
+          }`}
+        >
+          🔔 Alerts
+        </button>
+        <button
+          onClick={() => setDetailTab("duo")}
+          className={`px-4 py-2 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap ${
+            detailTab === "duo"
+              ? "bg-[var(--accent)] text-white"
+              : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
+          }`}
+        >
+          👥 Duo Mode
+        </button>
+      </div>
 
-        {event.notes && (
-          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[20px] p-4 animate-[fadeInUp_0.4s_ease_0.1s_backwards]">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2">
-              Notes
-            </p>
-            <p className="text-[15px] text-[var(--text)] leading-relaxed tracking-tight">{event.notes}</p>
-          </div>
+      <div className="flex-1 overflow-y-auto px-4 pt-6 pb-28">
+        {detailTab === "overview" && (
+          <>
+            {hasPhoto && (
+              <div className="mb-6 -mx-4">
+                <img src={event.photo} alt={event.title} className="w-full h-[192px] object-cover" style={{
+                  mask: "linear-gradient(to bottom, black 0%, black 70%, transparent 100%)"
+                }} />
+              </div>
+            )}
+
+            <div className="flex flex-col items-center mb-8 animate-[fadeInUp_0.4s_ease]">
+              <span className="text-[52px] mb-4">{event.emoji}</span>
+              <h1 className="text-[26px] font-bold tracking-tight text-[var(--text)] text-center mb-2">
+                {event.title}
+              </h1>
+              <p className="text-[15px] text-[var(--text-tertiary)] tracking-tight text-center">
+                {formatEventDateLong(event.eventDate)}
+                {event.recurring === "yearly" && <span> · repeats yearly 🔁</span>}
+              </p>
+              {event.category && event.category !== "personal" && (
+                <div className="mt-3 px-3 py-1.5 bg-[var(--surface-secondary)] rounded-[10px] text-[12px] font-medium text-[var(--text-secondary)]">
+                  {CATEGORIES.find(c => c.value === event.category)?.label}
+                </div>
+              )}
+            </div>
+
+            <div
+              className={`flex flex-col items-center rounded-[28px] border p-12 mb-4 animate-[fadeInUp_0.4s_ease_0.05s_backwards] ${
+                isToday ? "bg-[var(--accent-light)] border-[var(--accent)]/30" : "bg-[var(--surface)] border-[var(--border)]"
+              }`}
+              style={{ boxShadow: "0 4px 20px var(--shadow)" }}
+            >
+              {isPast ? (
+                <>
+                  <span className="text-[13px] font-medium uppercase tracking-wider text-[var(--text-tertiary)] mb-2">
+                    happened
+                  </span>
+                  <CountdownNumber days={days} size="hero" customColor={isToday ? accentColor : undefined} />
+                  <span className="text-[15px] font-medium tracking-tight text-[var(--text-tertiary)] mt-3">
+                    days ago
+                  </span>
+                </>
+              ) : isToday ? (
+                <>
+                  <span className="text-[20px] font-semibold tracking-tight mb-2" style={{ color: accentColor }}>
+                    🎉 Today!
+                  </span>
+                  <CountdownNumber days={0} size="hero" customColor={accentColor} />
+                  <span className="text-[15px] font-medium tracking-tight mt-3" style={{ color: accentColor }}>
+                    days away
+                  </span>
+                </>
+              ) : (
+                <>
+                  <CountdownNumber days={days} size="hero" customColor={isToday ? accentColor : undefined} />
+                  <span className="text-[15px] font-medium tracking-tight text-[var(--text-secondary)] mt-3">
+                    {days === 1 ? "day away" : "days away"}
+                  </span>
+                </>
+              )}
+            </div>
+
+            {event.notes && (
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[20px] p-4 animate-[fadeInUp_0.4s_ease_0.1s_backwards]">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2">
+                  Notes
+                </p>
+                <p className="text-[15px] text-[var(--text)] leading-relaxed tracking-tight">{event.notes}</p>
+              </div>
+            )}
+          </>
         )}
+
+        {detailTab === "feelings" && <EmotionalFeelings eventId={event.id} isDark={isDark} />}
+        {detailTab === "journey" && <CountdownJourney eventId={event.id} eventDate={event.eventDate} isDark={isDark} />}
+        {detailTab === "suggestions" && <ContextualSuggestions eventId={event.id} category={event.category} daysRemaining={days} isDark={isDark} />}
+        {detailTab === "notifications" && <NotificationPreferences eventId={event.id} eventTitle={event.title} isDark={isDark} />}
+        {detailTab === "duo" && <DuoMode eventId={event.id} isDark={isDark} />}
       </div>
 
       <div className="absolute bottom-0 left-0 right-0 p-4 pb-[max(env(safe-area-inset-bottom),16px)] border-t border-[var(--border-subtle)] bg-[var(--background)]">
