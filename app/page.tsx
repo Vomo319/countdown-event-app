@@ -434,23 +434,23 @@ function ShareScreen({
   } until ${event.title} ${event.emoji}`;
 
   const handleShare = async () => {
-    if (!selectedEvent) return;
+    if (!event) return;
     
     try {
       // Create a shareable room in the database
       const roomResult = await createSharedRoom(
-        selectedEvent.title,
-        selectedEvent.emoji,
-        new Date(selectedEvent.eventDate),
-        selectedEvent.category,
-        selectedEvent.color,
+        event.title,
+        event.emoji,
+        new Date(event.eventDate),
+        event.category,
+        event.color,
         sessionId
       );
 
       if (roomResult.success && roomResult.room) {
         const roomCode = roomResult.room.room_code;
         const shareUrl = `${window.location.origin}/shared/${roomCode}`;
-        const shareText = `Check out "${selectedEvent.title}" ${selectedEvent.emoji} on Waiting For!\n${shareUrl}`;
+        const shareText = `Check out "${event.title}" ${event.emoji} on Waiting For!\n${shareUrl}`;
         
         if (navigator.share) {
           try {
