@@ -11,6 +11,7 @@ import { DuoModeComponent as DuoMode } from "./components/DuoMode";
 import { TimeOfDayCountdown } from "./components/TimeOfDayCountdown";
 import { YearInReviewComponent as YearInReview } from "./components/YearInReview";
 import { saveEvent, deleteEvent as deleteEventDb, getEvents } from "./actions/events";
+import { createSharedRoom } from "./actions/shared-rooms";
 
 // ---------- Types ----------
 type Category = "personal" | "milestone" | "travel" | "holiday";
@@ -161,12 +162,12 @@ function useEvents() {
   const [events, setEvents] = useState<CountdownEvent[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [sessionId] = useState(() => {
-    // Generate a unique session ID for this browser session
+    // Generate a persistent session ID stored in localStorage (survives reloads)
     if (typeof window !== 'undefined') {
-      let sid = sessionStorage.getItem('countdown_session_id');
+      let sid = localStorage.getItem('countdown_session_id');
       if (!sid) {
         sid = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-        sessionStorage.setItem('countdown_session_id', sid);
+        localStorage.setItem('countdown_session_id', sid);
       }
       return sid;
     }
@@ -433,19 +434,50 @@ function ShareScreen({
   } until ${event.title} ${event.emoji}`;
 
   const handleShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: "Waiting For",
-          text: shareText,
-        });
-      } catch (err) {
-        // User cancelled
+    if (!selectedEvent) return;
+    
+    try {
+      // Create a shareable room in the database
+      const roomResult = await createSharedRoom(
+        selectedEvent.title,
+        selectedEvent.emoji,
+        new Date(selectedEvent.eventDate),
+        selectedEvent.category,
+        selectedEvent.color,
+        sessionId
+      );
+
+      if (roomResult.success && roomResult.room) {
+        const roomCode = roomResult.room.room_code;
+        const shareUrl = `${window.location.origin}/shared/${roomCode}`;
+        const shareText = `Check out "${selectedEvent.title}" ${selectedEvent.emoji} on Waiting For!\n${shareUrl}`;
+        
+        if (navigator.share) {
+          try {
+            await navigator.share({
+              title: "Waiting For",
+              text: shareText,
+              url: shareUrl,
+            });
+          } catch (err) {
+            // User cancelled share dialog
+            await navigator.clipboard.writeText(shareUrl);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          }
+        } else {
+          // Fallback to clipboard
+          await navigator.clipboard.writeText(shareUrl);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }
+      } else {
+        console.error('[v0] Failed to create share room:', roomResult.error);
+        alert('Failed to create shareable link');
       }
-    } else {
-      await navigator.clipboard.writeText(shareText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+    } catch (error) {
+      console.error('[v0] Share error:', error);
+      alert('Error creating shareable link');
     }
   };
 
