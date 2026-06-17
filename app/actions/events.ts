@@ -55,7 +55,7 @@ export async function saveEvent(data: Omit<CountdownEventData, 'createdAt'>, ses
         session_id: sessionId,
         created_at: new Date(),
         updated_at: new Date(),
-      } as any)
+      })
     }
     
     console.log('[v0] Event saved successfully:', data.id)
@@ -134,41 +134,5 @@ export async function deleteEvent(id: string, sessionId: string) {
   } catch (error) {
     console.error('[v0] Failed to delete event:', error)
     return { success: false, error: 'Failed to delete event' }
-  }
-}
-
-// Alias for hook compatibility
-export const deleteEventAction = deleteEvent
-
-export async function updateEventAction(id: string, changes: any, sessionId: string) {
-  try {
-    if (!id || !sessionId) {
-      return { success: false, error: 'Invalid parameters' }
-    }
-
-    const updateData: any = {}
-    if (changes.title) updateData.title = changes.title
-    if (changes.emoji) updateData.emoji = changes.emoji
-    if (changes.eventDate) updateData.event_date = new Date(changes.eventDate)
-    if (changes.notes !== undefined) updateData.notes = changes.notes
-    if (changes.photo !== undefined) updateData.photo = changes.photo
-    if (changes.category !== undefined) updateData.category = changes.category
-    if (changes.color !== undefined) updateData.color = changes.color
-    if (changes.recurring !== undefined) updateData.recurring = changes.recurring
-    
-    updateData.updated_at = new Date()
-
-    await db.update(countdown_events).set(updateData).where(
-      and(
-        eq(countdown_events.id, id),
-        eq(countdown_events.session_id, sessionId)
-      )
-    )
-    
-    console.log('[v0] Event updated:', id)
-    return { success: true }
-  } catch (error) {
-    console.error('[v0] Failed to update event:', error)
-    return { success: false, error: 'Failed to update event' }
   }
 }

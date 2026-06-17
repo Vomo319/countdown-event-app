@@ -5,6 +5,8 @@ import { InstallPrompt } from "./components/InstallPrompt";
 import { ShareableRoomComponent as ShareableRoom } from "./components/ShareableRoom";
 import { ShareModal } from "./components/ShareModal";
 import { JoinRoomModal } from "./components/JoinRoomModal";
+import { RecoveryKeyDisplay } from "./components/RecoveryKeyDisplay";
+import { RestoreFromKey } from "./components/RestoreFromKey";
 import { EmotionalFeelingsComponent as EmotionalFeelings } from "./components/EmotionalFeelings";
 import { NotificationPreferencesComponent as NotificationPreferences } from "./components/NotificationPreferences";
 import { CountdownJourneyComponent as CountdownJourney } from "./components/CountdownJourney";
@@ -160,31 +162,36 @@ function useTheme() {
 }
 
 // ---------- Events hook ----------
+// The session_id is the user's permanent DB identity (stored in localStorage).
+// The recovery key IS the session_id — so restoring means swapping session_id
+// to a previously saved value, then reloading.
 function useEvents() {
   const [events, setEvents] = useState<CountdownEvent[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [sessionId] = useState(() => {
-    // Generate a persistent session ID stored in localStorage (survives reloads)
     if (typeof window !== 'undefined') {
       let sid = localStorage.getItem('countdown_session_id');
       if (!sid) {
-        sid = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        // Generate a short, memorable ID that also serves as the recovery key
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        const part1 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+        const part2 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+        const part3 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+        sid = `${part1}-${part2}-${part3}`;
         localStorage.setItem('countdown_session_id', sid);
+        localStorage.setItem('waiting_for_recovery_key', sid);
       }
       return sid;
     }
-    return `session_${Date.now()}`;
+    return '';
   });
 
   useEffect(() => {
     const loadEvents = async () => {
       try {
-        console.log('[v0] loadEvents: sessionId =', sessionId);
         // Try to load from database first
         const result = await getEvents(sessionId);
-        console.log('[v0] loadEvents: result =', result);
         if (result.success && result.events) {
-          console.log('[v0] loadEvents: loaded', result.events.length, 'events from DB');
           const sorted = result.events.sort((a, b) => 
             a.eventDate instanceof Date 
               ? (new Date(a.eventDate) as any) - (new Date(b.eventDate) as any)
@@ -192,7 +199,6 @@ function useEvents() {
           );
           setEvents(sorted);
         } else {
-          console.log('[v0] loadEvents: DB returned no events, trying localStorage');
           // Fallback to localStorage if database fails
           const stored = localStorage.getItem(STORAGE_KEY);
           if (stored) {
@@ -202,7 +208,6 @@ function useEvents() {
           }
         }
       } catch (error) {
-        console.log('[v0] Error loading events:', error, 'trying localStorage');
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
           const parsed: CountdownEvent[] = JSON.parse(stored);
@@ -223,7 +228,7 @@ function useEvents() {
     // Save to localStorage as backup
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
     
-    // IMPORTANT: Also save all events to database for persistence
+    // Also save each event to DB
     for (const event of sorted) {
       await saveEvent({
         id: event.id,
@@ -236,7 +241,7 @@ function useEvents() {
         recurring: event.recurring,
         color: event.color,
       }, sessionId).catch(err => {
-        console.log('[v0] Failed to persist event to DB:', event.id, err);
+        console.log('[v0] Failed to persist event to DB:', event.id);
       });
     }
   };
@@ -299,7 +304,7 @@ function useEvents() {
     await persist(events.filter((e) => e.id !== id));
   };
 
-  return { events, loaded, addEvent, updateEvent, deleteEvent };
+  return { events, loaded, addEvent, updateEvent, deleteEvent, sessionId };
 }
 
 // ---------- Photo Picker Button ----------
@@ -1332,12 +1337,16 @@ function SettingsScreen({
   eventCount,
   onClose,
   onSupport,
+  onShowRecoveryKey,
+  onShowRestoreKey,
 }: {
   mode: ThemeMode;
   setThemeMode: (m: ThemeMode) => void;
   eventCount: number;
   onClose: () => void;
   onSupport: () => void;
+  onShowRecoveryKey: () => void;
+  onShowRestoreKey: () => void;
 }) {
   const options: { label: string; value: ThemeMode }[] = [
     { label: "System", value: "system" },
@@ -1375,6 +1384,26 @@ function SettingsScreen({
               </button>
             ))}
           </div>
+        </div>
+
+        <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
+          Data & Recovery
+        </p>
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[20px] divide-y divide-[var(--border-subtle)] mb-6">
+          <button
+            onClick={onShowRecoveryKey}
+            className="w-full flex items-center justify-between px-4 py-3.5 text-left active:bg-[var(--surface-secondary)] transition-colors"
+          >
+            <span className="text-[16px] font-medium text-[var(--text)]">View Recovery Key</span>
+            <span className="text-[20px]">›</span>
+          </button>
+          <button
+            onClick={onShowRestoreKey}
+            className="w-full flex items-center justify-between px-4 py-3.5 text-left active:bg-[var(--surface-secondary)] transition-colors"
+          >
+            <span className="text-[16px] font-medium text-[var(--text)]">Restore from Key</span>
+            <span className="text-[20px]">›</span>
+          </button>
         </div>
 
         <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
@@ -1416,12 +1445,14 @@ function SettingsScreen({
 // ---------- Main App ----------
 export default function WaitingForApp() {
   const { isDark, mode, setThemeMode } = useTheme();
-  const { events, loaded, addEvent, updateEvent, deleteEvent } = useEvents();
+  const { events, loaded, addEvent, updateEvent, deleteEvent, sessionId } = useEvents();
   const [view, setView] = useState<View>("home");
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category | "all">("all");
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [joinModalOpen, setJoinModalOpen] = useState(false);
+  const [showRecoveryKey, setShowRecoveryKey] = useState(false);
+  const [showRestoreKey, setShowRestoreKey] = useState(false);
 
   const filterByCategory = (events: CountdownEvent[]) => {
     if (selectedCategory === "all") return events;
@@ -1658,6 +1689,8 @@ export default function WaitingForApp() {
             eventCount={events.length}
             onSupport={() => setView("support")}
             onClose={() => setView("home")}
+            onShowRecoveryKey={() => setShowRecoveryKey(true)}
+            onShowRestoreKey={() => setShowRestoreKey(true)}
           />
         )}
 
@@ -1677,6 +1710,7 @@ export default function WaitingForApp() {
             eventDate={new Date(activeEvent.eventDate)}
             category={activeEvent.category}
             color={activeEvent.color}
+            creatorId={sessionId}
             onClose={() => setShareModalOpen(false)}
           />
         )}
@@ -1685,6 +1719,18 @@ export default function WaitingForApp() {
           <JoinRoomModal
             isOpen={joinModalOpen}
             onClose={() => setJoinModalOpen(false)}
+          />
+        )}
+
+        {/* Recovery Key Modals */}
+        {showRecoveryKey && (
+          <RecoveryKeyDisplay onClose={() => setShowRecoveryKey(false)} />
+        )}
+
+        {showRestoreKey && (
+          <RestoreFromKey
+            onClose={() => setShowRestoreKey(false)}
+            onSuccess={() => window.location.reload()}
           />
         )}
       </div>

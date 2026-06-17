@@ -8,9 +8,8 @@
     "allowJs": true,
     "target": "ES6",
     "skipLibCheck": true,
-    "strict": false,
+    "strict": true,
     "noEmit": true,
-    "noCheck": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
@@ -40,4 +39,3 @@
     "node_modules"
   ]
 }
-
