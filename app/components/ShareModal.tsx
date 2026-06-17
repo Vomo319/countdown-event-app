@@ -9,6 +9,7 @@ interface ShareModalProps {
   eventDate: Date
   category?: string
   color?: string
+  creatorId: string
   onClose: () => void
 }
 
@@ -18,6 +19,7 @@ export function ShareModal({
   eventDate,
   category,
   color,
+  creatorId,
   onClose,
 }: ShareModalProps) {
   const [roomCode, setRoomCode] = useState<string>('')
@@ -32,7 +34,7 @@ export function ShareModal({
   const generateRoomCode = async () => {
     setLoading(true)
     try {
-      const result = await createSharedRoom(eventTitle, eventEmoji, eventDate, category, color)
+      const result = await createSharedRoom(eventTitle, eventEmoji, eventDate, category, color, creatorId)
       console.log('[v0] createSharedRoom result:', result)
       if (result.success && result.room) {
         const code = result.room.room_code
@@ -134,25 +136,32 @@ export function ShareModal({
               Your Share Code
             </p>
             <div className="relative">
-              <div className="bg-[var(--surface)] border-2 border-[var(--accent)] rounded-[16px] p-5 text-center">
-                <p className="text-[13px] text-[var(--text-tertiary)] mb-2">
-                  Give this code to friends
-                </p>
-                <div className="text-[36px] font-bold font-mono text-[var(--accent)] tracking-wider letter-spacing-2">
-                  {roomCode || '----'}
-                </div>
+              <div className="bg-[var(--surface)] border-2 border-[var(--accent)] rounded-[16px] p-5 text-center min-h-[90px] flex flex-col items-center justify-center gap-2">
+                {loading ? (
+                  <>
+                    <div className="w-6 h-6 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin" />
+                    <p className="text-[13px] text-[var(--text-tertiary)]">Generating code...</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[12px] text-[var(--text-tertiary)]">Give this code to friends</p>
+                    <div className="text-[32px] font-bold font-mono text-[var(--accent)] tracking-widest">
+                      {roomCode}
+                    </div>
+                  </>
+                )}
               </div>
               <button
                 onClick={copyCode}
                 disabled={!roomCode || loading}
-                className={`mt-3 w-full py-3 rounded-[12px] text-[15px] font-semibold tracking-tight transition-colors active:scale-95 ${
+                className={`mt-3 w-full py-3 rounded-[12px] text-[15px] font-semibold tracking-tight transition-all active:scale-95 disabled:opacity-40 ${
                   copied
                     ? 'bg-green-500 text-white'
                     : 'bg-[var(--accent)] text-white hover:opacity-90'
                 }`}
                 type="button"
               >
-                {copied ? '✓ Code Copied!' : '📋 Copy Code'}
+                {copied ? 'Copied!' : 'Copy Code'}
               </button>
             </div>
           </div>
@@ -209,15 +218,16 @@ export function ShareModal({
             </p>
             <button
               onClick={copyLink}
-              className={`w-full px-3 py-3 rounded-[12px] text-[13px] font-mono break-all text-left border transition-colors active:scale-95 ${
+              disabled={!shareLink || loading}
+              className={`w-full px-3 py-3 rounded-[12px] text-[13px] font-mono break-all text-left border transition-colors active:scale-95 disabled:opacity-40 ${
                 copied
                   ? 'bg-green-500/10 border-green-500/30 text-green-600'
                   : 'bg-[var(--surface)] border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)]'
               }`}
               type="button"
             >
-              <span className="text-[11px] block mb-1">Click to copy link:</span>
-              {shareLink ? shareLink.replace('https://', '') : 'Loading...'}
+              <span className="text-[11px] block mb-1 not-italic">Click to copy link:</span>
+              {loading ? 'Generating...' : shareLink ? shareLink.replace('https://', '') : ''}
             </button>
           </div>
         </div>
