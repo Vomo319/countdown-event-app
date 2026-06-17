@@ -85,3 +85,39 @@ export async function getSharedRoom(roomCode: string) {
     return { success: false, error: 'Failed to retrieve room' }
   }
 }
+
+// Copy a shared event to the current user's countdowns
+export async function copySharedEventToUser(roomCode: string, recipientSessionId: string) {
+  try {
+    // 1. Get the shared room
+    const roomResult = await getSharedRoom(roomCode)
+    if (!roomResult.success || !roomResult.room) {
+      return { success: false, error: 'Room not found' }
+    }
+
+    const room = roomResult.room
+
+    // 2. Create a new countdown_event with the recipient's session_id
+    const newEventId = uuidv4()
+    const { countdown_events } = await import('@/lib/db/schema')
+    
+    await db.insert(countdown_events).values({
+      id: newEventId,
+      title: room.event_title,
+      emoji: room.event_emoji,
+      event_date: new Date(room.event_date),
+      category: room.category || null,
+      color: room.color || null,
+      session_id: recipientSessionId,
+      notes: `Shared by ${room.creator_id}`,
+      created_at: new Date(),
+      updated_at: new Date(),
+    })
+
+    console.log('[v0] Event copied to user:', newEventId)
+    return { success: true, eventId: newEventId }
+  } catch (error) {
+    console.error('[v0] Failed to copy event:', error)
+    return { success: false, error: String(error) }
+  }
+}

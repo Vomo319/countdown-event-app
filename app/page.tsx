@@ -228,6 +228,23 @@ function useEvents() {
     setEvents(sorted);
     // Save to localStorage as backup
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
+    
+    // Also save each event to DB
+    for (const event of sorted) {
+      await saveEvent({
+        id: event.id,
+        title: event.title,
+        emoji: event.emoji,
+        eventDate: new Date(event.eventDate),
+        notes: event.notes,
+        photo: event.photo,
+        category: event.category,
+        recurring: event.recurring,
+        color: event.color,
+      }, sessionId).catch(err => {
+        console.log('[v0] Failed to persist event to DB:', event.id);
+      });
+    }
   };
 
   const addEvent = async (data: Omit<CountdownEvent, "id" | "createdAt">) => {
@@ -1694,6 +1711,7 @@ export default function WaitingForApp() {
             eventDate={new Date(activeEvent.eventDate)}
             category={activeEvent.category}
             color={activeEvent.color}
+            creatorId={sessionId}
             onClose={() => setShareModalOpen(false)}
           />
         )}

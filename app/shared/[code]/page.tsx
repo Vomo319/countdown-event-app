@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
-import { getSharedRoom } from '@/app/actions/shared-rooms'
+import { useParams, useRouter } from 'next/navigation'
+import { getSharedRoom, copySharedEventToUser } from '@/app/actions/shared-rooms'
 
 interface SharedRoom {
   id: string
@@ -19,10 +19,12 @@ interface SharedRoom {
 
 export default function SharedRoomPage() {
   const params = useParams()
+  const router = useRouter()
   const roomCode = params.code as string
   const [room, setRoom] = useState<SharedRoom | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [copying, setCopying] = useState(false)
 
   useEffect(() => {
     const loadRoom = async () => {
@@ -48,6 +50,39 @@ export default function SharedRoomPage() {
 
     loadRoom()
   }, [roomCode])
+
+  const handleCopyToMyCountdowns = async () => {
+    setCopying(true)
+    try {
+      // Get the user's session ID (or create one)
+      let sessionId = localStorage.getItem('countdown_session_id')
+      if (!sessionId) {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+        const part1 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+        const part2 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+        const part3 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+        sessionId = `${part1}-${part2}-${part3}`
+        localStorage.setItem('countdown_session_id', sessionId)
+        localStorage.setItem('waiting_for_recovery_key', sessionId)
+      }
+
+      // Copy the event to the user's account
+      const result = await copySharedEventToUser(roomCode, sessionId)
+      if (result.success) {
+        // Show success and redirect to home
+        setTimeout(() => {
+          router.push('/?success=event-added')
+        }, 800)
+      } else {
+        setError(result.error || 'Failed to add to your countdowns')
+      }
+    } catch (err) {
+      console.error('[v0] Error copying event:', err)
+      setError('Failed to add to your countdowns')
+    } finally {
+      setCopying(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -151,16 +186,27 @@ export default function SharedRoomPage() {
           </div>
 
           {/* Footer CTA */}
-          <div className="p-6 bg-[var(--surface-secondary)] text-center border-t border-[var(--border-subtle)]">
-            <p className="text-[13px] text-[var(--text-secondary)] mb-4 tracking-tight">
-              Want to create your own countdowns and share them?
+          <div className="p-6 bg-[var(--surface-secondary)] text-center border-t border-[var(--border-subtle)] space-y-3">
+            <p className="text-[13px] text-[var(--text-secondary)] tracking-tight">
+              Like this countdown? Add it to yours!
             </p>
-            <a 
-              href="/" 
-              className="inline-block px-6 py-3 bg-[var(--accent)] text-white rounded-[12px] text-[15px] font-semibold hover:opacity-90 transition-opacity active:scale-95 tracking-tight shadow-md"
+            <button
+              onClick={handleCopyToMyCountdowns}
+              disabled={copying}
+              className={`w-full px-6 py-3 rounded-[12px] text-[15px] font-semibold tracking-tight transition-all active:scale-95 ${
+                copying
+                  ? 'bg-[var(--accent)]/50 text-white cursor-wait'
+                  : 'bg-[var(--accent)] text-white hover:opacity-90 shadow-md'
+              }`}
             >
-              Get Waiting For
-            </a>
+              {copying ? '✓ Adding to Countdowns...' : '➕ Add to My Countdowns'}
+            </button>
+            <p className="text-[11px] text-[var(--text-tertiary)]">
+              or{' '}
+              <a href="/" className="text-[var(--accent)] hover:underline">
+                create your own
+              </a>
+            </p>
           </div>
         </div>
 

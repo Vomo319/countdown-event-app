@@ -9,6 +9,7 @@ interface ShareModalProps {
   eventDate: Date
   category?: string
   color?: string
+  creatorId: string
   onClose: () => void
 }
 
@@ -18,6 +19,7 @@ export function ShareModal({
   eventDate,
   category,
   color,
+  creatorId,
   onClose,
 }: ShareModalProps) {
   const [roomCode, setRoomCode] = useState<string>('')
@@ -32,7 +34,7 @@ export function ShareModal({
   const generateRoomCode = async () => {
     setLoading(true)
     try {
-      const result = await createSharedRoom(eventTitle, eventEmoji, eventDate, category, color)
+      const result = await createSharedRoom(eventTitle, eventEmoji, eventDate, category, color, creatorId)
       console.log('[v0] createSharedRoom result:', result)
       if (result.success && result.room) {
         const code = result.room.room_code
