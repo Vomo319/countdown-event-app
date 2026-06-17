@@ -179,9 +179,12 @@ function useEvents() {
   useEffect(() => {
     const loadEvents = async () => {
       try {
+        console.log('[v0] loadEvents: sessionId =', sessionId);
         // Try to load from database first
         const result = await getEvents(sessionId);
+        console.log('[v0] loadEvents: result =', result);
         if (result.success && result.events) {
+          console.log('[v0] loadEvents: loaded', result.events.length, 'events from DB');
           const sorted = result.events.sort((a, b) => 
             a.eventDate instanceof Date 
               ? (new Date(a.eventDate) as any) - (new Date(b.eventDate) as any)
@@ -189,6 +192,7 @@ function useEvents() {
           );
           setEvents(sorted);
         } else {
+          console.log('[v0] loadEvents: DB returned no events, trying localStorage');
           // Fallback to localStorage if database fails
           const stored = localStorage.getItem(STORAGE_KEY);
           if (stored) {
@@ -198,7 +202,7 @@ function useEvents() {
           }
         }
       } catch (error) {
-        console.log('[v0] Error loading events, trying localStorage');
+        console.log('[v0] Error loading events:', error, 'trying localStorage');
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
           const parsed: CountdownEvent[] = JSON.parse(stored);
@@ -218,6 +222,23 @@ function useEvents() {
     setEvents(sorted);
     // Save to localStorage as backup
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
+    
+    // IMPORTANT: Also save all events to database for persistence
+    for (const event of sorted) {
+      await saveEvent({
+        id: event.id,
+        title: event.title,
+        emoji: event.emoji,
+        eventDate: new Date(event.eventDate),
+        notes: event.notes,
+        photo: event.photo,
+        category: event.category,
+        recurring: event.recurring,
+        color: event.color,
+      }, sessionId).catch(err => {
+        console.log('[v0] Failed to persist event to DB:', event.id, err);
+      });
+    }
   };
 
   const addEvent = async (data: Omit<CountdownEvent, "id" | "createdAt">) => {
