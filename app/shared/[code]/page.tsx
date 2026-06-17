@@ -81,42 +81,42 @@ export default function SharedRoomPage() {
   const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
 
   return (
-    <div className="min-h-screen bg-[var(--background)] p-4 pt-12">
-      <div className="max-w-md mx-auto">
+    <div className="min-h-screen bg-white dark:bg-slate-900 p-4 pt-12 animate-fadeIn safe-area-horizontal">
+      <div className="max-w-md mx-auto space-y-8">
         {/* Header */}
-        <div className="text-center mb-8">
-          <a href="/" className="text-[var(--accent)] text-[15px] font-medium mb-4 inline-block">
+        <div className="text-center animate-slideDown">
+          <a href="/" className="text-indigo-600 dark:text-indigo-400 text-sm font-semibold hover:underline inline-block mb-4">
             ← Back to App
           </a>
         </div>
 
         {/* Shared Event Card */}
-        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[24px] overflow-hidden shadow-lg">
+        <div className="card !p-0 overflow-hidden shadow-2xl animate-scaleIn">
           {/* Top Section */}
-          <div className="p-8 text-center border-b border-[var(--border)]">
-            <div className="text-[64px] mb-4">{room.event_emoji}</div>
-            <h1 className="text-[28px] font-bold text-[var(--text)] mb-2 text-balance">
+          <div className="p-8 text-center border-b border-gray-200 dark:border-gray-700 bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-slate-800 dark:to-slate-900">
+            <div className="text-[72px] mb-4 inline-block animate-pulse">{room.event_emoji}</div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-3 text-balance">
               {room.event_title}
             </h1>
             
             {room.category && room.category !== 'personal' && (
-              <div className="inline-block px-3 py-1 bg-[var(--accent)]/10 rounded-[8px] text-[12px] font-medium text-[var(--accent)] mt-2">
+              <div className="inline-block px-4 py-1.5 bg-indigo-100 dark:bg-indigo-950 rounded-full text-xs font-semibold text-indigo-600 dark:text-indigo-400 mt-2 capitalize">
                 {room.category}
               </div>
             )}
           </div>
 
           {/* Countdown Section */}
-          <div className="p-8 text-center bg-gradient-to-b from-transparent to-[var(--accent)]/5">
-            <p className="text-[13px] uppercase tracking-wider text-[var(--text-tertiary)] mb-3">
-              {diffDays < 0 ? 'It happened!' : 'Counting down to...'}
+          <div className="p-8 text-center">
+            <p className="text-xs uppercase tracking-widest text-gray-600 dark:text-gray-400 mb-4 font-bold">
+              {diffDays < 0 ? '🎉 It Happened!' : '⏳ Counting Down To...'}
             </p>
             
-            <div className="mb-6">
-              <div className="text-[56px] font-bold text-[var(--accent)] font-mono">
+            <div className="mb-8">
+              <div className="text-6xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent font-mono tracking-tighter animate-scaleIn">
                 {Math.abs(diffDays)}
               </div>
-              <p className="text-[16px] text-[var(--text-secondary)] mt-2">
+              <p className="text-lg text-gray-600 dark:text-gray-400 mt-3 font-medium">
                 {diffDays < 0 
                   ? `${Math.abs(diffDays)} day${Math.abs(diffDays) !== 1 ? 's' : ''} ago` 
                   : `day${Math.abs(diffDays) !== 1 ? 's' : ''} away`
@@ -124,7 +124,7 @@ export default function SharedRoomPage() {
               </p>
             </div>
 
-            <p className="text-[14px] text-[var(--text)] font-medium mb-4">
+            <p className="text-base text-gray-900 dark:text-white font-semibold mb-4">
               {eventDate.toLocaleDateString('en-US', { 
                 weekday: 'long', 
                 year: 'numeric', 
@@ -133,30 +133,36 @@ export default function SharedRoomPage() {
               })}
             </p>
 
-            <div className="text-[12px] text-[var(--text-tertiary)]">
+            <div className="inline-block px-3 py-1 bg-green-100 dark:bg-green-950 rounded-full text-xs text-green-700 dark:text-green-400 font-medium">
               ✓ Shared {room.view_count || 1} time{(room.view_count || 1) !== 1 ? 's' : ''}
             </div>
           </div>
 
           {/* Footer */}
-          <div className="p-6 bg-[var(--surface-secondary)] text-center border-t border-[var(--border)]">
-            <p className="text-[12px] text-[var(--text-tertiary)] mb-4">
+          <div className="p-6 bg-gray-50 dark:bg-slate-800 text-center border-t border-gray-200 dark:border-gray-700 space-y-3">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
               Want to create your own countdowns?
             </p>
             <a 
               href="/" 
-              className="inline-block px-6 py-2.5 bg-[var(--accent)] text-white rounded-[10px] text-[14px] font-medium hover:opacity-90 transition-opacity"
+              className="inline-block px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl text-sm font-semibold transition-all hover:shadow-lg active:scale-95"
             >
               Download Waiting For
             </a>
           </div>
         </div>
 
-        {/* Info Text */}
-        <div className="mt-8 p-4 bg-[var(--surface)] rounded-[16px] border border-[var(--border)] text-center">
-          <p className="text-[13px] text-[var(--text-secondary)]">
-            💡 Create countdowns, share them with friends, and celebrate anticipation together on Waiting For.
+        {/* Info Section */}
+        <div className="surface animate-slideUp">
+          <p className="text-sm text-gray-600 dark:text-gray-400 text-center">
+            <span className="text-xl mr-2">💡</span>
+            Create countdowns, share them with friends, and celebrate anticipation together on <strong>Waiting For</strong>.
           </p>
+        </div>
+
+        {/* Share Instructions */}
+        <div className="text-center text-xs text-gray-600 dark:text-gray-500 pb-8">
+          <p>Shared via: <span className="font-mono bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">{roomCode}</span></p>
         </div>
       </div>
     </div>

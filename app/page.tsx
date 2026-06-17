@@ -139,9 +139,9 @@ export default function Home() {
 
   return (
     <div className={`min-h-screen ${isDark ? 'dark' : ''}`}>
-      <div className="bg-white dark:bg-slate-900 transition-colors">
+      <div className="bg-white dark:bg-slate-900 transition-colors duration-300">
         {/* Header */}
-        <header className="sticky top-0 z-40 border-b border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur">
+        <header className="sticky top-0 z-40 border-b border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur animate-slideDown">
           <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between safe-area-horizontal">
             <div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Waiting For</h1>
@@ -149,7 +149,7 @@ export default function Home() {
             </div>
             <button
               onClick={() => setShowAddModal(true)}
-              className="p-3 rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-lg hover:shadow-xl active:scale-95 transition-all duration-200"
+              className="p-3 rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-lg hover:shadow-xl active:scale-95 transition-all duration-200 animate-scaleIn"
             >
               <Plus size={24} />
             </button>
@@ -159,8 +159,8 @@ export default function Home() {
         {/* Content */}
         <main className="max-w-2xl mx-auto px-4 py-6 space-y-8 safe-area-horizontal safe-area-bottom">
           {futureEvents.length === 0 && pastEvents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <div className="text-6xl mb-4">⏳</div>
+            <div className="flex flex-col items-center justify-center py-12 text-center animate-fadeIn">
+              <div className="text-6xl mb-4 animate-pulse">⏳</div>
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">No Countdowns Yet</h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
                 Create your first countdown to something amazing!
@@ -176,24 +176,27 @@ export default function Home() {
             <>
               {/* Upcoming Events */}
               {futureEvents.length > 0 && (
-                <section>
+                <section className="animate-slideUp">
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                     <Calendar size={22} className="text-indigo-600" />
                     Upcoming
                   </h2>
                   <div className="space-y-3">
-                    {futureEvents.map(event => {
+                    {futureEvents.map((event, idx) => {
                       const days = getDaysRemaining(event.eventDate)
                       return (
                         <div
                           key={event.id}
-                          className="card group cursor-pointer hover:shadow-lg hover:scale-102 transition-all duration-200"
+                          className="card group cursor-pointer hover:shadow-lg hover:scale-102 transition-all duration-200 animate-slideUp"
+                          style={{ animationDelay: `${idx * 50}ms` }}
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4 flex-1">
-                              <div className="text-4xl">{event.emoji}</div>
+                              <div className="text-4xl group-hover:scale-110 transition-transform duration-200">
+                                {event.emoji}
+                              </div>
                               <div className="flex-1 min-w-0">
-                                <h3 className="font-bold text-gray-900 dark:text-white truncate">
+                                <h3 className="font-bold text-gray-900 dark:text-white truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
                                   {event.title}
                                 </h3>
                                 <p className="text-sm text-gray-600 dark:text-gray-400">
@@ -204,7 +207,7 @@ export default function Home() {
                                 </p>
                               </div>
                             </div>
-                            <div className="text-right">
+                            <div className="text-right group-hover:scale-110 transition-transform duration-200 origin-right">
                               <div className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">
                                 {days}
                               </div>
@@ -218,14 +221,14 @@ export default function Home() {
                           <div className="flex gap-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
                               onClick={() => handleShare(event)}
-                              className="flex-1 btn-secondary py-2 text-sm flex items-center justify-center gap-2"
+                              className="flex-1 btn-secondary py-2 text-sm flex items-center justify-center gap-2 hover:scale-105 active:scale-95 transition-transform"
                             >
                               <Share2 size={16} />
                               Share
                             </button>
                             <button
                               onClick={() => handleDeleteEvent(event.id)}
-                              className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg transition-colors"
+                              className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg transition-colors hover:scale-110 active:scale-95"
                             >
                               <Trash2 size={18} />
                             </button>
@@ -239,19 +242,22 @@ export default function Home() {
 
               {/* Past Events */}
               {pastEvents.length > 0 && (
-                <section>
+                <section className="animate-slideUp" style={{ animationDelay: '100ms' }}>
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 text-gray-500">
                     Memories
                   </h2>
-                  <div className="space-y-3 opacity-60">
-                    {pastEvents.map(event => (
+                  <div className="space-y-3 opacity-60 hover:opacity-100 transition-opacity">
+                    {pastEvents.map((event, idx) => (
                       <div
                         key={event.id}
-                        className="card group cursor-pointer hover:shadow-lg transition-all duration-200"
+                        className="card group cursor-pointer hover:shadow-lg transition-all duration-200 animate-slideUp"
+                        style={{ animationDelay: `${(futureEvents.length + idx) * 50 + 100}ms` }}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-4 flex-1">
-                            <div className="text-4xl">{event.emoji}</div>
+                            <div className="text-4xl opacity-60 group-hover:opacity-100 group-hover:scale-110 transition-all duration-200">
+                              {event.emoji}
+                            </div>
                             <div className="flex-1 min-w-0">
                               <h3 className="font-bold text-gray-900 dark:text-white truncate">
                                 {event.title}
@@ -266,7 +272,7 @@ export default function Home() {
                           </div>
                           <button
                             onClick={() => handleDeleteEvent(event.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                            className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded-lg transition-colors opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95"
                           >
                             <Trash2 size={18} />
                           </button>
