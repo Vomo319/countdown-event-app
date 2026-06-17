@@ -162,147 +162,119 @@ function useTheme() {
 }
 
 // ---------- Events hook ----------
-// The session_id is the user's permanent DB identity (stored in localStorage).
-// The recovery key IS the session_id — so restoring means swapping session_id
-// to a previously saved value, then reloading.
+// session_id is the user's permanent identity — stored in localStorage.
+// It is created once, never changes, and is used for all DB queries.
 function useEvents() {
   const [events, setEvents] = useState<CountdownEvent[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [sessionId, setSessionId] = useState<string>('');
 
-  // Initialize sessionId on client only
+  // Step 1: Initialize sessionId on the client only (avoids SSR empty-string bug)
   useEffect(() => {
     let sid = localStorage.getItem('countdown_session_id');
     if (!sid) {
       const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-      const part1 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-      const part2 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-      const part3 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-      sid = `${part1}-${part2}-${part3}`;
+      const rnd = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+      sid = `${rnd()}-${rnd()}-${rnd()}`;
       localStorage.setItem('countdown_session_id', sid);
       localStorage.setItem('waiting_for_recovery_key', sid);
     }
     setSessionId(sid);
   }, []);
 
+  // Step 2: Once we have the sessionId, load events from the DB
   useEffect(() => {
-    if (!sessionId) return; // Wait until sessionId is initialized
-    
-    const loadEvents = async () => {
+    if (!sessionId) return;
+
+    const load = async () => {
       try {
-        // Try to load from database first
         const result = await getEvents(sessionId);
-        if (result.success && result.events) {
-          const sorted = result.events.sort((a, b) => 
-            a.eventDate instanceof Date 
-              ? (new Date(a.eventDate) as any) - (new Date(b.eventDate) as any)
-              : (a.eventDate as any).localeCompare((b.eventDate as any))
-          );
-          setEvents(sorted);
+        if (result.success && result.events && result.events.length > 0) {
+          setEvents(sortByDate(result.events));
         } else {
-          // Fallback to localStorage if database fails
+          // DB returned nothing — fall back to localStorage snapshot
           const stored = localStorage.getItem(STORAGE_KEY);
           if (stored) {
-            const parsed: CountdownEvent[] = JSON.parse(stored);
-            parsed.sort((a, b) => a.eventDate.localeCompare(b.eventDate));
-            setEvents(parsed);
+            try {
+              setEvents(sortByDate(JSON.parse(stored)));
+            } catch { /* ignore bad JSON */ }
           }
         }
-      } catch (error) {
+      } catch {
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
-          const parsed: CountdownEvent[] = JSON.parse(stored);
-          parsed.sort((a, b) => a.eventDate.localeCompare(b.eventDate));
-          setEvents(parsed);
+          try {
+            setEvents(sortByDate(JSON.parse(stored)));
+          } catch { /* ignore bad JSON */ }
         }
       } finally {
         setLoaded(true);
       }
     };
-    
-    loadEvents();
+
+    load();
   }, [sessionId]);
 
-  const persist = async (next: CountdownEvent[]) => {
-    const sorted = [...next].sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+  // Sort helper
+  const sortByDate = (list: CountdownEvent[]) =>
+    [...list].sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+
+  // Update local state + localStorage snapshot (no DB call — DB is updated separately)
+  const setAndStore = (next: CountdownEvent[]) => {
+    const sorted = sortByDate(next);
     setEvents(sorted);
-    // Save to localStorage as backup
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
-    
-    // Also save each event to DB
-    for (const event of sorted) {
-      await saveEvent({
-        id: event.id,
-        title: event.title,
-        emoji: event.emoji,
-        eventDate: new Date(event.eventDate),
-        notes: event.notes,
-        photo: event.photo,
-        category: event.category,
-        recurring: event.recurring,
-        color: event.color,
-      }, sessionId).catch(err => {
-        console.log('[v0] Failed to persist event to DB:', event.id);
-      });
-    }
   };
 
-  const addEvent = async (data: Omit<CountdownEvent, "id" | "createdAt">) => {
+  const addEvent = async (data: Omit<CountdownEvent, 'id' | 'createdAt'>) => {
     const newEvent: CountdownEvent = {
       ...data,
       id: generateId(),
       createdAt: new Date().toISOString(),
     };
-    
-    // Save to database
-    await saveEvent({
-      id: newEvent.id,
-      title: newEvent.title,
-      emoji: newEvent.emoji,
-      eventDate: new Date(newEvent.eventDate),
-      notes: newEvent.notes,
-      photo: newEvent.photo,
-      category: newEvent.category,
-      recurring: newEvent.recurring,
-      color: newEvent.color,
-    }, sessionId).catch(err => {
-      console.log('[v0] Database save failed, using localStorage');
-    });
-    
-    await persist([...events, newEvent]);
+    // Save to DB first, then update UI
+    await saveEvent(
+      {
+        id: newEvent.id,
+        title: newEvent.title,
+        emoji: newEvent.emoji,
+        eventDate: new Date(newEvent.eventDate),
+        notes: newEvent.notes,
+        photo: newEvent.photo,
+        category: newEvent.category,
+        recurring: newEvent.recurring,
+        color: newEvent.color,
+      },
+      sessionId
+    );
+    setAndStore([...events, newEvent]);
   };
 
   const updateEvent = async (id: string, updates: Partial<CountdownEvent>) => {
-    const updated = events.map((e) => (e.id === id ? { ...e, ...updates } : e));
-    
-    // Find the updated event
-    const updatedEvent = updated.find(e => e.id === id);
-    if (updatedEvent) {
-      await saveEvent({
-        id: updatedEvent.id,
-        title: updatedEvent.title,
-        emoji: updatedEvent.emoji,
-        eventDate: new Date(updatedEvent.eventDate),
-        notes: updatedEvent.notes,
-        photo: updatedEvent.photo,
-        category: updatedEvent.category,
-        recurring: updatedEvent.recurring,
-        color: updatedEvent.color,
-      }, sessionId).catch(err => {
-        console.log('[v0] Database update failed, using localStorage');
-      });
+    const next = events.map((e) => (e.id === id ? { ...e, ...updates } : e));
+    const updated = next.find((e) => e.id === id);
+    if (updated) {
+      await saveEvent(
+        {
+          id: updated.id,
+          title: updated.title,
+          emoji: updated.emoji,
+          eventDate: new Date(updated.eventDate),
+          notes: updated.notes,
+          photo: updated.photo,
+          category: updated.category,
+          recurring: updated.recurring,
+          color: updated.color,
+        },
+        sessionId
+      );
     }
-    
-    await persist(updated);
+    setAndStore(next);
   };
 
   const deleteEvent = async (id: string) => {
-    // Delete from database
-    await deleteEventDb(id, sessionId).catch(err => {
-      console.log('[v0] Database delete failed, using localStorage');
-    });
-    
-    await persist(events.filter((e) => e.id !== id));
+    await deleteEventDb(id, sessionId);
+    setAndStore(events.filter((e) => e.id !== id));
   };
 
   return { events, loaded, addEvent, updateEvent, deleteEvent, sessionId };
