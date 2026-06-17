@@ -1,462 +1,1672 @@
-'use client'
+"use client";
 
-import { useState, useEffect } from 'react'
-import { useSession } from '@/app/hooks/useSession'
-import { useEvents } from '@/app/hooks/useEvents'
-import { useSharing } from '@/app/hooks/useSharing'
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { InstallPrompt } from "./components/InstallPrompt";
+import { ShareableRoomComponent as ShareableRoom } from "./components/ShareableRoom";
+import { ShareModal } from "./components/ShareModal";
+import { JoinRoomModal } from "./components/JoinRoomModal";
+import { EmotionalFeelingsComponent as EmotionalFeelings } from "./components/EmotionalFeelings";
+import { NotificationPreferencesComponent as NotificationPreferences } from "./components/NotificationPreferences";
+import { CountdownJourneyComponent as CountdownJourney } from "./components/CountdownJourney";
+import { ContextualSuggestionsComponent as ContextualSuggestions } from "./components/ContextualSuggestions";
+import { DuoModeComponent as DuoMode } from "./components/DuoMode";
+import { TimeOfDayCountdown } from "./components/TimeOfDayCountdown";
+import { YearInReviewComponent as YearInReview } from "./components/YearInReview";
+import { saveEvent, deleteEvent as deleteEventDb, getEvents } from "./actions/events";
+import { createSharedRoom } from "./actions/shared-rooms";
 
-export const dynamic = 'force-dynamic'
+// ---------- Types ----------
+type Category = "personal" | "milestone" | "travel" | "holiday";
+type Recurrence = "none" | "yearly";
 
-function getDaysRemaining(dateString: string): number {
-  const event = new Date(dateString)
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const diff = event.getTime() - today.getTime()
-  return Math.ceil(diff / (1000 * 60 * 60 * 24))
+interface CountdownEvent {
+  id: string;
+  title: string;
+  emoji: string;
+  eventDate: string; // ISO date string (yyyy-mm-dd)
+  notes?: string;
+  createdAt: string;
+  category?: Category;
+  recurring?: Recurrence;
+  photo?: string; // base64 data URL
+  color?: string; // hex color override
 }
 
-function formatDate(dateString: string): string {
-  const d = new Date(dateString)
-  return d.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  })
+type ThemeMode = "light" | "dark" | "system";
+type View = "home" | "add" | "edit" | "detail" | "settings" | "share" | "support";
+
+// ---------- Constants ----------
+const STORAGE_KEY = "waiting_for_events_v1";
+const THEME_KEY = "waiting_for_theme_v1";
+
+const CATEGORIES: { label: string; icon: string; value: Category }[] = [
+  { label: "Milestones", icon: "🎓", value: "milestone" },
+  { label: "Travel", icon: "✈️", value: "travel" },
+  { label: "Holidays", icon: "🎄", value: "holiday" },
+  { label: "Personal", icon: "💜", value: "personal" },
+];
+
+const COLOR_SWATCHES: { name: string; light: string; dark: string }[] = [
+  { name: "Violet", light: "#5B5BD6", dark: "#7B7BF5" },
+  { name: "Rose", light: "#D946A6", dark: "#EC4899" },
+  { name: "Amber", light: "#D97706", dark: "#F59E0B" },
+  { name: "Teal", light: "#0891B2", dark: "#06B6D4" },
+  { name: "Slate", light: "#64748B", dark: "#94A3B8" },
+];
+
+const EMOJI_OPTIONS = [
+  "🎂", "🎉", "✈️", "🏖️", "🎓", "💍", "🏠", "🎁",
+  "🎵", "⚽", "🏔️", "🌍", "🎬", "📚", "💼", "🌸",
+  "🦋", "⭐", "🌙", "☀️", "🍾", "🎯", "🏆", "💫",
+];
+
+// ---------- Helpers ----------
+function generateId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-// Event Card Component - Native mobile app style
-function EventCard({ event, onEdit, onDelete }: any) {
-  const days = getDaysRemaining(event.eventDate)
-  const isToday = days === 0
-  const isSoon = days > 0 && days <= 7
+function getDaysRemaining(dateString: string, recurring?: Recurrence): number {
+  if (recurring === "yearly") {
+    const [year, month, day] = dateString.split("-");
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    let eventDate = new Date(Number(year), Number(month) - 1, Number(day));
+    
+    // If this year's date has passed, use next year's date
+    if (eventDate < today) {
+      eventDate.setFullYear(today.getFullYear() + 1);
+    }
+    
+    const diff = eventDate.getTime() - today.getTime();
+    return Math.round(diff / (1000 * 60 * 60 * 24));
+  }
   
+  const event = new Date(dateString + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = event.getTime() - today.getTime();
+  return Math.round(diff / (1000 * 60 * 60 * 24));
+}
+
+function formatEventDateLong(dateString: string): string {
+  const d = new Date(dateString + "T00:00:00");
+  return d.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatEventDateShort(dateString: string, recurring?: Recurrence): string {
+  const days = getDaysRemaining(dateString, recurring);
+  const d = new Date(dateString + "T00:00:00");
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow · " + d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function todayISO(): string {
+  const d = new Date();
+  const offset = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - offset * 60 * 1000);
+  return local.toISOString().split("T")[0];
+}
+
+function addDaysISO(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  const offset = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - offset * 60 * 1000);
+  return local.toISOString().split("T")[0];
+}
+
+function getAccentColor(isDark: boolean, customColor?: string): string {
+  if (!customColor) {
+    return isDark ? "#7B7BF5" : "#5B5BD6";
+  }
+  const swatch = COLOR_SWATCHES.find(s => s.light === customColor || s.dark === customColor);
+  return swatch ? (isDark ? swatch.dark : swatch.light) : customColor;
+}
+
+// ---------- Theme hook ----------
+function useTheme() {
+  const [mode, setMode] = useState<ThemeMode>("system");
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(THEME_KEY) as ThemeMode | null;
+    if (stored) setMode(stored);
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => {
+      if (mode === "system") setIsDark(mq.matches);
+      else setIsDark(mode === "dark");
+    };
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, [mode]);
+
+  const setThemeMode = (m: ThemeMode) => {
+    setMode(m);
+    localStorage.setItem(THEME_KEY, m);
+  };
+
+  return { isDark, mode, setThemeMode };
+}
+
+// ---------- Events hook ----------
+function useEvents() {
+  const [events, setEvents] = useState<CountdownEvent[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [sessionId] = useState(() => {
+    // Generate a persistent session ID stored in localStorage (survives reloads)
+    if (typeof window !== 'undefined') {
+      let sid = localStorage.getItem('countdown_session_id');
+      if (!sid) {
+        sid = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        localStorage.setItem('countdown_session_id', sid);
+      }
+      return sid;
+    }
+    return `session_${Date.now()}`;
+  });
+
+  useEffect(() => {
+    const loadEvents = async () => {
+      try {
+        // Try to load from database first
+        const result = await getEvents(sessionId);
+        if (result.success && result.events) {
+          const sorted = result.events.sort((a, b) => 
+            a.eventDate instanceof Date 
+              ? (new Date(a.eventDate) as any) - (new Date(b.eventDate) as any)
+              : (a.eventDate as any).localeCompare((b.eventDate as any))
+          );
+          setEvents(sorted);
+        } else {
+          // Fallback to localStorage if database fails
+          const stored = localStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            const parsed: CountdownEvent[] = JSON.parse(stored);
+            parsed.sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+            setEvents(parsed);
+          }
+        }
+      } catch (error) {
+        console.log('[v0] Error loading events, trying localStorage');
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const parsed: CountdownEvent[] = JSON.parse(stored);
+          parsed.sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+          setEvents(parsed);
+        }
+      } finally {
+        setLoaded(true);
+      }
+    };
+    
+    loadEvents();
+  }, [sessionId]);
+
+  const persist = async (next: CountdownEvent[]) => {
+    const sorted = [...next].sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+    setEvents(sorted);
+    // Save to localStorage as backup
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
+  };
+
+  const addEvent = async (data: Omit<CountdownEvent, "id" | "createdAt">) => {
+    const newEvent: CountdownEvent = {
+      ...data,
+      id: generateId(),
+      createdAt: new Date().toISOString(),
+    };
+    
+    // Save to database
+    await saveEvent({
+      id: newEvent.id,
+      title: newEvent.title,
+      emoji: newEvent.emoji,
+      eventDate: new Date(newEvent.eventDate),
+      notes: newEvent.notes,
+      photo: newEvent.photo,
+      category: newEvent.category,
+      recurring: newEvent.recurring,
+      color: newEvent.color,
+    }, sessionId).catch(err => {
+      console.log('[v0] Database save failed, using localStorage');
+    });
+    
+    await persist([...events, newEvent]);
+  };
+
+  const updateEvent = async (id: string, updates: Partial<CountdownEvent>) => {
+    const updated = events.map((e) => (e.id === id ? { ...e, ...updates } : e));
+    
+    // Find the updated event
+    const updatedEvent = updated.find(e => e.id === id);
+    if (updatedEvent) {
+      await saveEvent({
+        id: updatedEvent.id,
+        title: updatedEvent.title,
+        emoji: updatedEvent.emoji,
+        eventDate: new Date(updatedEvent.eventDate),
+        notes: updatedEvent.notes,
+        photo: updatedEvent.photo,
+        category: updatedEvent.category,
+        recurring: updatedEvent.recurring,
+        color: updatedEvent.color,
+      }, sessionId).catch(err => {
+        console.log('[v0] Database update failed, using localStorage');
+      });
+    }
+    
+    await persist(updated);
+  };
+
+  const deleteEvent = async (id: string) => {
+    // Delete from database
+    await deleteEventDb(id, sessionId).catch(err => {
+      console.log('[v0] Database delete failed, using localStorage');
+    });
+    
+    await persist(events.filter((e) => e.id !== id));
+  };
+
+  return { events, loaded, addEvent, updateEvent, deleteEvent };
+}
+
+// ---------- Photo Picker Button ----------
+function PhotoPickerButton({
+  photo,
+  onPhotoSelect,
+  onPhotoRemove,
+}: {
+  photo?: string;
+  onPhotoSelect: (dataUrl: string) => void;
+  onPhotoRemove: () => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 4 * 1024 * 1024) {
+      alert("Photo must be smaller than 4MB");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      onPhotoSelect(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  if (photo) {
+    return (
+      <div className="relative">
+        <img src={photo} alt="Event cover" className="w-full h-[144px] rounded-[14px] object-cover" />
+        <button
+          onClick={() => onPhotoRemove()}
+          className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center text-white text-[16px]"
+        >
+          ×
+        </button>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="absolute bottom-2 right-2 px-3 py-1.5 rounded-[8px] bg-black/50 text-white text-[12px] font-medium"
+        >
+          Change
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="group card overflow-hidden">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-4xl">{event.emoji || '🎉'}</span>
-            <div className="flex-1">
-              <h3 className="text-lg font-bold text-slate-100 line-clamp-2">{event.title}</h3>
+    <>
+      <button
+        onClick={() => fileInputRef.current?.click()}
+        className="w-full py-8 border-2 border-dashed border-[var(--border)] rounded-[14px] flex flex-col items-center justify-center gap-2 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-light)]"
+      >
+        <span className="text-[24px]">📷</span>
+        <p className="text-[13px] font-medium text-[var(--text-secondary)]">Add Cover Photo</p>
+      </button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+    </>
+  );
+}
+
+// ---------- Category Pills ----------
+function CategoryPills({
+  selected,
+  onSelect,
+  hideAll,
+}: {
+  selected: Category;
+  onSelect: (c: Category) => void;
+  hideAll?: boolean;
+}) {
+  return (
+    <div className="flex gap-2 flex-wrap">
+      {CATEGORIES.map((cat) => (
+        <button
+          key={cat.value}
+          onClick={() => onSelect(cat.value)}
+          className={`px-3 py-2 rounded-[12px] text-[13px] font-medium tracking-tight transition-colors flex items-center gap-1 ${
+            selected === cat.value
+              ? "bg-[var(--accent)] text-white"
+              : "bg-[var(--surface-secondary)] text-[var(--text-secondary)] hover:bg-[var(--border)]"
+          }`}
+        >
+          <span>{cat.icon}</span>
+          {cat.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ---------- Color Swatches ----------
+function ColorSwatches({
+  selected,
+  isDark,
+  onSelect,
+}: {
+  selected?: string;
+  isDark: boolean;
+  onSelect: (color?: string) => void;
+}) {
+  return (
+    <div className="flex gap-3 flex-wrap">
+      {COLOR_SWATCHES.map((swatch) => {
+        const color = isDark ? swatch.dark : swatch.light;
+        const isSelected = selected === color;
+        return (
+          <button
+            key={swatch.name}
+            onClick={() => onSelect(isSelected ? undefined : color)}
+            className="transition-transform"
+            style={{
+              width: "48px",
+              height: "48px",
+              borderRadius: "12px",
+              backgroundColor: color,
+              border: isSelected ? `3px solid ${color}` : "none",
+              boxShadow: isSelected ? `0 0 0 2px var(--surface), 0 0 0 4px ${color}` : "0 1px 3px rgba(0,0,0,0.1)",
+              transform: isSelected ? "scale(1.1)" : "scale(1)",
+            }}
+            title={swatch.name}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------- Share Screen ----------
+function ShareScreen({
+  event,
+  isDark,
+  onClose,
+}: {
+  event: CountdownEvent;
+  isDark: boolean;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const days = getDaysRemaining(event.eventDate, event.recurring);
+  const accentColor = getAccentColor(isDark, event.color);
+
+  const shareText = `${days <= 0 && event.recurring !== "yearly" ? Math.abs(days) : Math.abs(days)} ${
+    days === 0 ? "" : days <= 0 && event.recurring !== "yearly" ? "days ago" : "days"
+  } until ${event.title} ${event.emoji}`;
+
+  const handleShare = async () => {
+    if (!event) return;
+    
+    try {
+      // Create a shareable room in the database
+      const roomResult = await createSharedRoom(
+        event.title,
+        event.emoji,
+        new Date(event.eventDate),
+        event.category,
+        event.color,
+        sessionId
+      );
+
+      if (roomResult.success && roomResult.room) {
+        const roomCode = roomResult.room.room_code;
+        const shareUrl = `${window.location.origin}/shared/${roomCode}`;
+        const shareText = `Check out "${event.title}" ${event.emoji} on Waiting For!\n${shareUrl}`;
+        
+        if (navigator.share) {
+          try {
+            await navigator.share({
+              title: "Waiting For",
+              text: shareText,
+              url: shareUrl,
+            });
+          } catch (err) {
+            // User cancelled share dialog
+            await navigator.clipboard.writeText(shareUrl);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          }
+        } else {
+          // Fallback to clipboard
+          await navigator.clipboard.writeText(shareUrl);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }
+      } else {
+        console.error('[v0] Failed to create share room:', roomResult.error);
+        alert('Failed to create shareable link');
+      }
+    } catch (error) {
+      console.error('[v0] Share error:', error);
+      alert('Error creating shareable link');
+    }
+  };
+
+  const handleCopyText = async () => {
+    await navigator.clipboard.writeText(shareText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  const hasPhoto = event.photo && event.photo.length > 0;
+
+  return (
+    <div className="fixed inset-0 z-40 bg-[var(--background)] flex flex-col animate-[slideUp_0.3s_ease]">
+      <div className="flex items-center justify-between px-4 pt-[max(env(safe-area-inset-top),12px)] pb-3 border-b border-[var(--border-subtle)]">
+        <button onClick={onClose} className="text-[17px] font-medium text-[var(--accent)] tracking-tight">
+          ‹ Back
+        </button>
+        <h1 className="text-[17px] font-semibold tracking-tight text-[var(--text)]">Share</h1>
+        <div className="w-16" />
+      </div>
+
+      <div className="flex-1 flex flex-col items-center justify-center px-4 pb-20">
+        <div
+          className="rounded-[24px] overflow-hidden mb-6 animate-[fadeInUp_0.4s_ease]"
+          style={{
+            width: "320px",
+            aspectRatio: "4/5",
+            background: hasPhoto
+              ? `url(${event.photo}) center / cover`
+              : `linear-gradient(135deg, ${accentColor}20, ${accentColor}05)`,
+          }}
+        >
+          {hasPhoto && <div className="absolute inset-0 bg-black/45" />}
+          <div className="w-full h-full flex flex-col items-center justify-center relative z-10">
+            <span className="text-[64px] mb-4">{event.emoji}</span>
+            <h2 className={`text-[24px] font-bold text-center tracking-tight mb-6 px-4 ${
+              hasPhoto ? "text-white" : "text-[var(--text)]"
+            }`}>
+              {event.title}
+            </h2>
+            <div className={`text-[56px] font-extrabold tracking-tighter leading-none mb-2 ${
+              hasPhoto ? "text-white" : ""
+            }`}
+            style={{ color: !hasPhoto ? accentColor : undefined }}
+            >
+              {Math.abs(days)}
+            </div>
+            <p className={`text-[14px] font-medium tracking-tight ${
+              hasPhoto ? "text-white/80" : "text-[var(--text-secondary)]"
+            }`}>
+              days to go
+            </p>
+            <div className={`absolute bottom-4 left-4 text-[12px] font-semibold tracking-wide ${
+              hasPhoto ? "text-white/60" : "text-[var(--text-tertiary)]"
+            }`}>
+              Waiting For
             </div>
           </div>
-          
-          <div className="flex items-baseline gap-2 mb-3">
-            <span className={`text-3xl font-black ${
-              isToday ? 'text-pink-400' : isSoon ? 'text-cyan-400' : 'text-slate-300'
-            }`}>
-              {days < 0 ? '✓' : days}
-            </span>
-            <span className="text-sm text-slate-400">
-              {days < 0 ? 'Happened' : days === 0 ? 'Today!' : days === 1 ? 'Tomorrow' : `days left`}
-            </span>
-          </div>
-          
-          <div className="flex items-center gap-2 text-sm text-slate-400 mb-3">
-            <span className="inline-block">📅</span>
-            <span>{formatDate(event.eventDate)}</span>
-          </div>
-          
-          {event.notes && (
-            <p className="text-sm text-slate-300 mb-3 line-clamp-2">{event.notes}</p>
-          )}
         </div>
-        
-        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+
+        <div className="flex flex-col gap-2 w-full max-w-xs">
+          {navigator.share && (
+            <button
+              onClick={handleShare}
+              className="w-full py-[14px] rounded-[16px] text-[17px] font-semibold tracking-tight bg-[var(--accent)] text-white active:opacity-90 transition-colors"
+            >
+              Share
+            </button>
+          )}
           <button
-            onClick={() => onEdit(event)}
-            className="p-2 rounded-lg bg-slate-700/50 hover:bg-slate-600 text-slate-300 text-sm transition-colors"
+            onClick={handleCopyText}
+            className={`w-full py-[14px] rounded-[16px] text-[17px] font-semibold tracking-tight transition-colors ${
+              copied
+                ? "bg-[var(--accent)] text-white"
+                : "bg-[var(--surface-secondary)] text-[var(--text)] active:opacity-90"
+            }`}
           >
-            ✎
-          </button>
-          <button
-            onClick={() => onDelete(event.id)}
-            className="p-2 rounded-lg bg-slate-700/50 hover:bg-red-600/30 text-slate-300 hover:text-red-400 text-sm transition-colors"
-          >
-            ✕
+            {copied ? "Copied ✓" : "Copy as text"}
           </button>
         </div>
       </div>
     </div>
-  )
+  );
 }
+function CountdownNumber({ days, size = "large", customColor }: { days: number; size?: "large" | "hero"; customColor?: string }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setMounted(true), 30);
+    return () => clearTimeout(t);
+  }, []);
 
-// Main Content Component
-function HomePageContent() {
-  const { sessionId, loaded: sessionLoaded, recoveryKey, restore } = useSession()
-  const { events, loaded: eventsLoaded, addEvent, updateEvent, deleteEvent } = useEvents(sessionId)
-  const { sharing, roomCode, shareLink, shareEvent, resetShare } = useSharing(sessionId)
+  const isPast = days < 0;
+  const isToday = days === 0;
+  const display = Math.abs(days).toString();
 
-  const [view, setView] = useState<'home' | 'add' | 'settings'>('home')
-  const [showForm, setShowForm] = useState(false)
-  const [editingEvent, setEditingEvent] = useState<any>(null)
-  const [showShare, setShowShare] = useState(false)
-  const [recoveryInput, setRecoveryInput] = useState('')
-  
-  const [formData, setFormData] = useState({
-    title: '',
-    emoji: '🎉',
-    eventDate: '',
-    notes: '',
-  })
-
-  if (!sessionLoaded) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="w-12 h-12 rounded-full border-4 border-cyan-500 border-t-transparent animate-spin mx-auto" />
-          <p className="text-slate-300">Getting your best friend ready...</p>
-        </div>
-      </div>
-    )
-  }
-
-  const handleAddEvent = async () => {
-    if (!formData.title || !formData.eventDate) return
-    
-    if (editingEvent) {
-      await updateEvent(editingEvent.id, formData)
-      setEditingEvent(null)
-    } else {
-      await addEvent({
-        ...formData,
-        id: Date.now().toString(),
-        createdAt: new Date().toISOString(),
-      })
-    }
-    
-    setFormData({ title: '', emoji: '🎉', eventDate: '', notes: '' })
-    setShowForm(false)
-  }
-
-  const handleEditEvent = (event: any) => {
-    setEditingEvent(event)
-    setFormData({
-      title: event.title,
-      emoji: event.emoji,
-      eventDate: event.eventDate,
-      notes: event.notes,
-    })
-    setShowForm(true)
-    setView('add')
-  }
-
-  const handleDeleteEvent = async (id: string) => {
-    await deleteEvent(id)
-  }
-
-  const sortedEvents = [...events].sort((a, b) => getDaysRemaining(a.eventDate) - getDaysRemaining(b.eventDate))
-  const upcomingEvents = sortedEvents.filter(e => getDaysRemaining(e.eventDate) > 0)
-  const pastEvents = sortedEvents.filter(e => getDaysRemaining(e.eventDate) <= 0)
+  const sizeClasses = size === "hero" ? "text-[clamp(72px,22vw,104px)]" : "text-[44px]";
+  const colorStyle = customColor ? { color: customColor } : undefined;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 to-slate-900">
-      {/* Header */}
-      <div className="sticky top-0 z-40 bg-slate-950/80 backdrop-blur border-b border-slate-800 px-4 py-3">
-        <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-pink-400">
-              Waiting For
-            </h1>
-            <p className="text-xs text-slate-400">Your countdown companion</p>
+    <span
+      className={`font-extrabold tabular-nums tracking-tighter transition-all duration-500 ${sizeClasses} ${
+        mounted ? "opacity-100 scale-100" : "opacity-0 scale-95"
+      } ${isToday ? customColor ? "" : "text-[var(--accent)]" : isPast ? "text-[var(--text-tertiary)]" : "text-[var(--text)]"}`}
+      style={{ lineHeight: 1, ...colorStyle }}
+    >
+      {isToday ? "0" : display}
+    </span>
+  );
+}
+
+// ---------- Event Card ----------
+function EventCard({
+  event,
+  index,
+  onOpen,
+  onDelete,
+  isDark,
+}: {
+  event: CountdownEvent;
+  index: number;
+  onOpen: () => void;
+  onDelete: () => void;
+  isDark: boolean;
+}) {
+  const days = getDaysRemaining(event.eventDate, event.recurring);
+  const isPast = days < 0 && event.recurring !== "yearly";
+  const isToday = days === 0;
+  const isTomorrow = days === 1;
+
+  const [mounted, setMounted] = useState(false);
+  const [dragX, setDragX] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const startX = useRef(0);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setMounted(true), index * 50);
+    return () => clearTimeout(t);
+  }, [index]);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    startX.current = e.clientX;
+    setDragging(true);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!dragging) return;
+    const delta = e.clientX - startX.current;
+    if (delta < 0) setDragX(Math.max(delta, -160));
+  };
+
+  const handlePointerUp = () => {
+    setDragging(false);
+    if (dragX < -80) {
+      setDragX(-window.innerWidth);
+      setTimeout(onDelete, 200);
+    } else {
+      setDragX(0);
+    }
+  };
+
+  const accentColor = getAccentColor(isDark, event.color);
+  const accentClass = isToday
+    ? `text-[${accentColor}]`
+    : isTomorrow
+    ? "text-[var(--accent-muted)]"
+    : isPast
+    ? "text-[var(--text-tertiary)]"
+    : "text-[var(--text)]";
+
+  const hasPhoto = event.photo && event.photo.length > 0;
+
+  return (
+    <div className="relative mb-2.5 mx-4">
+      <div
+        className="absolute inset-0 rounded-[20px] bg-[var(--destructive)] flex items-center justify-end pr-8 transition-opacity"
+        style={{ opacity: Math.min(Math.abs(dragX) / 80, 1) }}
+      >
+        <span className="text-white font-semibold text-[15px]">Delete</span>
+      </div>
+
+      <div
+        ref={cardRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={dragging ? handlePointerUp : undefined}
+        onClick={() => dragX === 0 && onOpen()}
+        className={`relative flex items-center justify-between bg-[var(--surface)] border rounded-[20px] px-4 py-[18px] cursor-pointer select-none transition-all duration-300 active:scale-[0.98] overflow-hidden ${
+          isToday ? "border-[var(--accent)]/30 shadow-md" : "border-[var(--border)]"
+        } ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"}`}
+        style={{
+          transform: `translateX(${dragX}px)`,
+          transition: dragging ? "none" : "transform 0.3s ease, opacity 0.3s, translate 0.3s",
+          boxShadow: isToday ? `0 0 0 1px var(--accent)/20, 0 4px 16px var(--shadow-md)` : "0 2px 12px var(--shadow-md)",
+          touchAction: "pan-y",
+          backgroundImage: hasPhoto ? `url(${event.photo})` : undefined,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
+      >
+        {hasPhoto && (
+          <>
+            <div className="absolute inset-0 bg-gradient-to-r from-black/60 via-black/30 to-black/60" />
+          </>
+        )}
+
+        <div className={`relative flex items-center flex-1 min-w-0 mr-4 ${hasPhoto ? "z-10" : ""}`}>
+          <span className="text-[28px] mr-3 shrink-0">{event.emoji}</span>
+          <div className="min-w-0">
+            <p className={`text-[16px] font-semibold tracking-tight truncate ${
+              hasPhoto ? "text-white" : isPast ? "text-[var(--text-secondary)]" : "text-[var(--text)]"
+            }`}>
+              {event.title}
+            </p>
+            <p className={`text-[13px] tracking-tight mt-0.5 flex items-center gap-1 ${
+              hasPhoto ? "text-white/70" : "text-[var(--text-tertiary)]"
+            }`}>
+              {formatEventDateShort(event.eventDate, event.recurring)}
+              {event.recurring === "yearly" && <span>🔁</span>}
+            </p>
           </div>
-          
-          <div className="flex gap-2">
-            {view !== 'settings' && (
-              <button
-                onClick={() => setView('settings')}
-                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-              >
-                ⚙️
-              </button>
-            )}
-            {view === 'settings' && (
-              <button
-                onClick={() => setView('home')}
-                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-              >
-                ←
-              </button>
-            )}
+        </div>
+
+        <div className={`relative flex flex-col items-end shrink-0 min-w-[64px] ${hasPhoto ? "z-10" : ""}`}>
+          <span className={`text-[38px] font-extrabold tracking-tighter tabular-nums leading-[1.1] ${
+            hasPhoto
+              ? "text-white"
+              : isToday
+              ? `text-[${accentColor}]`
+              : isTomorrow
+              ? "text-[var(--accent-muted)]"
+              : isPast
+              ? "text-[var(--text-tertiary)]"
+              : "text-[var(--text)]"
+          }`}
+          style={{ color: isToday && !hasPhoto ? accentColor : undefined }}
+          >
+            {isToday ? "0" : Math.abs(days)}
+          </span>
+          <span className={`text-[11px] font-medium uppercase tracking-wider mt-0.5 ${
+            hasPhoto ? "text-white/70" : "text-[var(--text-tertiary)]"
+          }`}>
+            {isPast && event.recurring !== "yearly" ? "days ago" : isToday ? "today" : days === 1 ? "day" : "days"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Empty State ----------
+function EmptyState() {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center pb-20 px-8 animate-[fadeInUp_0.5s_ease_0.2s_forwards] opacity-0">
+      <span className="text-[48px] mb-6 opacity-60">⏳</span>
+      <h2 className="text-[22px] font-semibold tracking-tight text-[var(--text)] mb-2">Nothing yet</h2>
+      <p className="text-[15px] text-[var(--text-tertiary)] text-center leading-relaxed max-w-[220px]">
+        Add an event to start counting down
+      </p>
+    </div>
+  );
+}
+
+// ---------- Date Picker ----------
+function DatePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const date = new Date(value + "T00:00:00");
+  const [year, setYear] = useState(date.getFullYear());
+  const [month, setMonth] = useState(date.getMonth());
+  const [day, setDay] = useState(date.getDate());
+
+  const MONTHS = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() + i);
+
+  const update = (y: number, m: number, d: number) => {
+    const clampedDay = Math.min(d, new Date(y, m + 1, 0).getDate());
+    setYear(y);
+    setMonth(m);
+    setDay(clampedDay);
+    const mm = String(m + 1).padStart(2, "0");
+    const dd = String(clampedDay).padStart(2, "0");
+    onChange(`${y}-${mm}-${dd}`);
+  };
+
+  const colClass = "flex-1 h-[200px] overflow-y-auto scrollbar-none";
+  const itemClass = (active: boolean) =>
+    `px-2 py-2.5 mx-0.5 my-0.5 rounded-lg text-center text-[14px] tracking-tight transition-colors cursor-pointer ${
+      active
+        ? "bg-[var(--accent-light)] text-[var(--accent)] font-semibold"
+        : "text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)]"
+    }`;
+
+  return (
+    <div className="flex border border-[var(--border)] rounded-[14px] overflow-hidden">
+      <div className={`${colClass} flex-[2]`}>
+        {MONTHS.map((m, i) => (
+          <div key={m} className={itemClass(i === month)} onClick={() => update(year, i, day)}>
+            {m}
+          </div>
+        ))}
+      </div>
+      <div className={colClass}>
+        {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((d) => (
+          <div key={d} className={itemClass(d === day)} onClick={() => update(year, month, d)}>
+            {d}
+          </div>
+        ))}
+      </div>
+      <div className={colClass}>
+        {years.map((y) => (
+          <div key={y} className={itemClass(y === year)} onClick={() => update(y, month, day)}>
+            {y}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Emoji Picker Sheet ----------
+function EmojiPickerSheet({
+  visible,
+  current,
+  onSelect,
+  onClose,
+}: {
+  visible: boolean;
+  current: string;
+  onSelect: (e: string) => void;
+  onClose: () => void;
+}) {
+  if (!visible) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40 animate-[fadeIn_0.2s_ease]" />
+      <div
+        className="relative w-full bg-[var(--surface)] rounded-t-[28px] p-6 pb-10 animate-[slideUp_0.3s_ease]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-9 h-1 rounded-full bg-[var(--border)] mx-auto mb-4" />
+        <h3 className="text-[17px] font-semibold tracking-tight text-[var(--text)] mb-4">Choose Emoji</h3>
+        <div className="grid grid-cols-6 gap-2">
+          {EMOJI_OPTIONS.map((e) => (
+            <button
+              key={e}
+              onClick={() => {
+                onSelect(e);
+                onClose();
+              }}
+              className={`w-[52px] h-[52px] flex items-center justify-center rounded-[14px] text-[28px] transition-colors ${
+                e === current ? "bg-[var(--accent-light)]" : "hover:bg-[var(--surface-secondary)]"
+              }`}
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Add/Edit Event Screen ----------
+function AddEditScreen({
+  editing,
+  onSave,
+  onClose,
+  isDark,
+}: {
+  editing: CountdownEvent | null;
+  onSave: (data: Omit<CountdownEvent, "id" | "createdAt">) => void;
+  onClose: () => void;
+  isDark: boolean;
+}) {
+  const [title, setTitle] = useState(editing?.title ?? "");
+  const [emoji, setEmoji] = useState(editing?.emoji ?? "🎉");
+  const [date, setDate] = useState(editing?.eventDate ?? addDaysISO(30));
+  const [notes, setNotes] = useState(editing?.notes ?? "");
+  const [photo, setPhoto] = useState(editing?.photo);
+  const [category, setCategory] = useState<Category>(editing?.category ?? "personal");
+  const [recurring, setRecurring] = useState<Recurrence>(editing?.recurring ?? "none");
+  const [color, setColor] = useState(editing?.color);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => inputRef.current?.focus(), 350);
+    return () => clearTimeout(t);
+  }, []);
+
+  const handleSave = () => {
+    if (!title.trim()) return;
+    onSave({
+      title: title.trim(),
+      emoji,
+      eventDate: date,
+      notes: notes.trim() || undefined,
+      photo,
+      category,
+      recurring,
+      color,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 bg-[var(--background)] flex flex-col animate-[slideUp_0.3s_ease]">
+      <div className="flex items-center justify-between px-4 pt-[max(env(safe-area-inset-top),12px)] pb-3 border-b border-[var(--border-subtle)]">
+        <button onClick={onClose} className="w-16 text-[17px] text-[var(--text-secondary)] text-left font-medium">
+          Cancel
+        </button>
+        <h1 className="text-[17px] font-semibold tracking-tight text-[var(--text)]">
+          {editing ? "Edit Event" : "New Event"}
+        </h1>
+        <div className="w-16" />
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-24">
+        <div className="mb-6">
+          <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
+            Cover Photo
+          </p>
+          <PhotoPickerButton
+            photo={photo}
+            onPhotoSelect={setPhoto}
+            onPhotoRemove={() => setPhoto(undefined)}
+          />
+        </div>
+
+        <div className="flex items-center bg-[var(--surface)] border border-[var(--border)] rounded-[20px] overflow-hidden shadow-sm">
+          <button
+            onClick={() => setShowEmojiPicker(true)}
+            className="w-14 h-14 flex items-center justify-center bg-[var(--surface-secondary)] hover:bg-[var(--accent)]/10 rounded-[14px] m-4 mr-0 text-[30px] shrink-0 transition-colors active:scale-90"
+            type="button"
+          >
+            {emoji}
+          </button>
+          <input
+            ref={inputRef}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Event name"
+            maxLength={60}
+            className="flex-1 bg-transparent px-4 py-4 text-[18px] font-medium tracking-tight text-[var(--text)] placeholder-[var(--text-tertiary)] outline-none min-h-[56px]"
+          />
+        </div>
+
+        <div className="mt-6">
+          <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
+            Category
+          </p>
+          <CategoryPills selected={category} onSelect={setCategory} />
+        </div>
+
+        <div className="mt-6">
+          <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
+            Date
+          </p>
+          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[20px] p-2 shadow-sm">
+            <DatePicker value={date} onChange={setDate} />
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <div className="flex items-center justify-between px-4 py-3 bg-[var(--surface)] border border-[var(--border)] rounded-[20px] shadow-sm">
+            <div>
+              <p className="text-[14px] font-medium text-[var(--text)]">Repeats yearly</p>
+              <p className="text-[12px] text-[var(--text-tertiary)] mt-0.5">For birthdays & anniversaries</p>
+            </div>
+            <button
+              onClick={() => setRecurring(recurring === "yearly" ? "none" : "yearly")}
+              className={`w-12 h-7 rounded-full transition-colors flex items-center active:scale-90 ${
+                recurring === "yearly" ? "bg-[var(--accent)]" : "bg-[var(--border)]"
+              }`}
+              type="button"
+            >
+              <div className={`w-6 h-6 rounded-full bg-white transition-transform ${
+                recurring === "yearly" ? "translate-x-5" : "translate-x-0.5"
+              }`} />
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
+            Accent Color
+          </p>
+          <ColorSwatches selected={color} isDark={isDark} onSelect={setColor} />
+        </div>
+
+        <div className="mt-6 mb-8">
+          <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
+            Notes
+          </p>
+          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[20px] shadow-sm">
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Optional note…"
+              maxLength={300}
+              rows={3}
+              className="w-full bg-transparent px-4 py-4 text-[16px] tracking-tight text-[var(--text)] placeholder-[var(--text-tertiary)] outline-none resize-none leading-relaxed"
+            />
           </div>
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 py-6 pb-24">
-        {/* Home View */}
-        {view === 'home' && (
-          <div className="space-y-6">
-            {/* Add Button */}
-            {!showForm && (
-              <button
-                onClick={() => {
-                  setShowForm(true)
-                  setView('add')
-                  setEditingEvent(null)
-                  setFormData({ title: '', emoji: '🎉', eventDate: '', notes: '' })
-                }}
-                className="w-full btn-primary py-4 text-lg font-semibold"
-              >
-                + Add Countdown
-              </button>
+      <div className="fixed bottom-0 left-0 right-0 p-4 pb-[max(env(safe-area-inset-bottom),16px)] border-t border-[var(--border-subtle)] bg-[var(--background)]">
+        <button
+          onClick={handleSave}
+          disabled={!title.trim()}
+          className={`w-full py-[14px] rounded-[16px] text-[17px] font-semibold tracking-tight transition-colors cursor-pointer active:scale-[0.98] ${
+            title.trim()
+              ? "bg-[var(--accent)] text-white shadow-md active:opacity-90"
+              : "bg-[var(--border)] text-[var(--text-tertiary)] cursor-not-allowed opacity-50"
+          }`}
+        >
+          {editing ? "Save Changes" : "Add Event"}
+        </button>
+      </div>
+
+      <EmojiPickerSheet
+        visible={showEmojiPicker}
+        current={emoji}
+        onSelect={setEmoji}
+        onClose={() => setShowEmojiPicker(false)}
+      />
+    </div>
+  );
+}
+
+// ---------- Event Detail Screen ----------
+function DetailScreen({
+  event,
+  onEdit,
+  onDelete,
+  onClose,
+  onShare,
+  isDark,
+}: {
+  event: CountdownEvent;
+  onEdit: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+  onShare: () => void;
+  isDark: boolean;
+}) {
+  const days = getDaysRemaining(event.eventDate, event.recurring);
+  const isPast = days < 0 && event.recurring !== "yearly";
+  const isToday = days === 0;
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [detailTab, setDetailTab] = useState<"overview" | "feelings" | "notifications" | "journey" | "suggestions" | "duo" | "time">("overview");
+  const accentColor = getAccentColor(isDark, event.color);
+  const hasPhoto = event.photo && event.photo.length > 0;
+
+  return (
+    <div className="fixed inset-0 z-40 bg-[var(--background)] flex flex-col animate-[fadeIn_0.25s_ease]">
+      <div className="flex items-center justify-between px-4 pt-[max(env(safe-area-inset-top),12px)] pb-3 border-b border-[var(--border-subtle)] bg-[var(--background)]">
+        <button onClick={onClose} className="text-[17px] font-medium text-[var(--accent)] tracking-tight active:opacity-70 min-w-[44px] h-[44px] flex items-center">
+          ‹ Back
+        </button>
+        <div className="flex gap-2">
+          <button onClick={onShare} className="text-[17px] font-medium text-[var(--accent)] tracking-tight active:opacity-70 px-3 min-h-[44px] flex items-center">
+            Share
+          </button>
+          <button onClick={onEdit} className="text-[17px] font-medium text-[var(--accent)] tracking-tight active:opacity-70 px-3 min-h-[44px] flex items-center">
+            Edit
+          </button>
+        </div>
+      </div>
+
+      {/* Feature Tabs */}
+      <div className="px-2 pt-3 pb-2 overflow-x-auto flex gap-2 border-b border-[var(--border-subtle)] scrollbar-hide">
+        <button
+          onClick={() => setDetailTab("overview")}
+          className={`px-4 py-2.5 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap active:scale-90 ${
+            detailTab === "overview"
+              ? "bg-[var(--accent)] text-white shadow-md"
+              : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
+          }`}
+          type="button"
+        >
+          Overview
+        </button>
+        <button
+          onClick={() => setDetailTab("feelings")}
+          className={`px-4 py-2.5 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap active:scale-90 ${
+            detailTab === "feelings"
+              ? "bg-[var(--accent)] text-white shadow-md"
+              : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
+          }`}
+          type="button"
+        >
+          💭 Feelings
+        </button>
+        <button
+          onClick={() => setDetailTab("journey")}
+          className={`px-4 py-2.5 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap active:scale-90 ${
+            detailTab === "journey"
+              ? "bg-[var(--accent)] text-white shadow-md"
+              : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
+          }`}
+          type="button"
+        >
+          🗺️ Journey
+        </button>
+        <button
+          onClick={() => setDetailTab("suggestions")}
+          className={`px-4 py-2 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap ${
+            detailTab === "suggestions"
+              ? "bg-[var(--accent)] text-white"
+              : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
+          }`}
+        >
+          💡 Tips
+        </button>
+        <button
+          onClick={() => setDetailTab("notifications")}
+          className={`px-4 py-2 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap ${
+            detailTab === "notifications"
+              ? "bg-[var(--accent)] text-white"
+              : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
+          }`}
+        >
+          🔔 Alerts
+        </button>
+        <button
+          onClick={() => setDetailTab("duo")}
+          className={`px-4 py-2 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap ${
+            detailTab === "duo"
+              ? "bg-[var(--accent)] text-white"
+              : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
+          }`}
+        >
+          👥 Duo Mode
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 pt-6 pb-28">
+        {detailTab === "overview" && (
+          <>
+            {hasPhoto && (
+              <div className="mb-6 -mx-4">
+                <img src={event.photo} alt={event.title} className="w-full h-[192px] object-cover" style={{
+                  mask: "linear-gradient(to bottom, black 0%, black 70%, transparent 100%)"
+                }} />
+              </div>
             )}
 
-            {/* Upcoming Events */}
-            {upcomingEvents.length > 0 ? (
-              <div className="space-y-3">
-                <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider px-1">
-                  ⏳ Upcoming ({upcomingEvents.length})
-                </h2>
-                <div className="space-y-2">
-                  {upcomingEvents.map(event => (
-                    <EventCard
-                      key={event.id}
-                      event={event}
-                      onEdit={handleEditEvent}
-                      onDelete={handleDeleteEvent}
-                    />
-                  ))}
-                </div>
-              </div>
-            ) : !showForm && (
-              <div className="card py-12 text-center">
-                <p className="text-4xl mb-3">🎊</p>
-                <h3 className="text-lg font-semibold text-slate-100 mb-2">
-                  Ready to count down together?
-                </h3>
-                <p className="text-sm text-slate-400 mb-4">
-                  I'm your best friend for all the moments you're excited about
-                </p>
-                <button
-                  onClick={() => {
-                    setShowForm(true)
-                    setView('add')
-                  }}
-                  className="btn-primary"
-                >
-                  Add your first countdown
-                </button>
-              </div>
-            )}
-
-            {/* Past Events */}
-            {pastEvents.length > 0 && (
-              <div className="space-y-3">
-                <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider px-1">
-                  ✓ Happened ({pastEvents.length})
-                </h2>
-                <div className="space-y-2">
-                  {pastEvents.map(event => (
-                    <EventCard
-                      key={event.id}
-                      event={event}
-                      onEdit={handleEditEvent}
-                      onDelete={handleDeleteEvent}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Add/Edit View */}
-        {view === 'add' && showForm && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-bold text-slate-100">
-              {editingEvent ? 'Edit Countdown' : 'New Countdown'}
-            </h2>
-
-            {/* Emoji Picker */}
-            <div>
-              <label className="text-sm font-semibold text-slate-300 block mb-2">Pick an emoji</label>
-              <div className="grid grid-cols-8 gap-2">
-                {['🎉', '🎂', '✈️', '🏖️', '🎓', '💍', '🏠', '🎁', '🎵', '⚽', '🏔️', '🌍', '🎬', '📚', '💼', '🌸'].map(emoji => (
-                  <button
-                    key={emoji}
-                    onClick={() => setFormData({ ...formData, emoji })}
-                    className={`text-3xl p-2 rounded-lg transition-all ${
-                      formData.emoji === emoji
-                        ? 'bg-cyan-500/30 ring-2 ring-cyan-400'
-                        : 'bg-slate-800 hover:bg-slate-700'
-                    }`}
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Title Input */}
-            <div>
-              <label className="text-sm font-semibold text-slate-300 block mb-2">What are you waiting for?</label>
-              <input
-                type="text"
-                placeholder="e.g. Summer vacation, Wedding day, New job..."
-                value={formData.title}
-                onChange={e => setFormData({ ...formData, title: e.target.value })}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-              />
-            </div>
-
-            {/* Date Input */}
-            <div>
-              <label className="text-sm font-semibold text-slate-300 block mb-2">When is it?</label>
-              <input
-                type="date"
-                value={formData.eventDate}
-                onChange={e => setFormData({ ...formData, eventDate: e.target.value })}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-              />
-            </div>
-
-            {/* Notes Input */}
-            <div>
-              <label className="text-sm font-semibold text-slate-300 block mb-2">Any notes?</label>
-              <textarea
-                placeholder="Add details, thoughts, or reminders..."
-                value={formData.notes}
-                onChange={e => setFormData({ ...formData, notes: e.target.value })}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 resize-none"
-                rows={3}
-              />
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex gap-3 pt-4">
-              <button
-                onClick={() => {
-                  setShowForm(false)
-                  setEditingEvent(null)
-                  setFormData({ title: '', emoji: '🎉', eventDate: '', notes: '' })
-                }}
-                className="flex-1 btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAddEvent}
-                disabled={!formData.title || !formData.eventDate}
-                className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {editingEvent ? 'Save' : 'Create'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Settings View */}
-        {view === 'settings' && (
-          <div className="space-y-6">
-            <h2 className="text-xl font-bold text-slate-100">Settings</h2>
-
-            {/* Recovery Key */}
-            <div className="card space-y-3">
-              <h3 className="font-semibold text-slate-100">Your Special Key</h3>
-              <p className="text-sm text-slate-400">
-                This is your best friend's memory. Keep it safe to bring all your countdowns back anytime.
+            <div className="flex flex-col items-center mb-8 animate-[fadeInUp_0.4s_ease]">
+              <span className="text-[52px] mb-4">{event.emoji}</span>
+              <h1 className="text-[26px] font-bold tracking-tight text-[var(--text)] text-center mb-2">
+                {event.title}
+              </h1>
+              <p className="text-[15px] text-[var(--text-tertiary)] tracking-tight text-center">
+                {formatEventDateLong(event.eventDate)}
+                {event.recurring === "yearly" && <span> · repeats yearly 🔁</span>}
               </p>
-              <div className="bg-slate-900 rounded-lg p-3 border border-slate-700 font-mono text-sm text-cyan-400 break-all">
-                {recoveryKey}
-              </div>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(recoveryKey)
-                  alert('Recovery key copied!')
-                }}
-                className="w-full btn-secondary text-sm"
-              >
-                Copy Key
-              </button>
-            </div>
-
-            {/* Restore */}
-            <div className="card space-y-3">
-              <h3 className="font-semibold text-slate-100">Restore Countdowns</h3>
-              <p className="text-sm text-slate-400">
-                Paste your recovery key to restore your countdowns on another device.
-              </p>
-              <input
-                type="text"
-                placeholder="Paste your recovery key..."
-                value={recoveryInput}
-                onChange={e => setRecoveryInput(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 font-mono text-sm"
-              />
-              <button
-                onClick={() => {
-                  if (recoveryInput.trim()) {
-                    restore(recoveryInput)
-                  }
-                }}
-                className="w-full btn-primary disabled:opacity-50"
-                disabled={!recoveryInput.trim()}
-              >
-                Restore
-              </button>
-            </div>
-
-            {/* Share */}
-            <div className="card space-y-3">
-              <h3 className="font-semibold text-slate-100">Share Your Countdowns</h3>
-              <p className="text-sm text-slate-400">
-                Let friends know what you're waiting for and they can add it to theirs.
-              </p>
-              <button
-                onClick={() => setShowShare(!showShare)}
-                className="w-full btn-secondary"
-              >
-                {showShare ? 'Hide Share' : 'Share Countdowns'}
-              </button>
-              
-              {showShare && (
-                <div className="space-y-2 pt-2 border-t border-slate-700">
-                  {roomCode && (
-                    <>
-                      <div className="bg-slate-900 rounded-lg p-3 border border-slate-700">
-                        <p className="text-xs text-slate-400 mb-1">Share code:</p>
-                        <p className="font-mono text-sm text-cyan-400">{roomCode}</p>
-                      </div>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(`Check out my countdowns: ${shareLink}`)
-                          alert('Share link copied!')
-                        }}
-                        className="w-full bg-slate-700 hover:bg-slate-600 text-slate-100 py-2 rounded-lg text-sm transition-colors"
-                      >
-                        Copy Share Link
-                      </button>
-                    </>
-                  )}
+              {event.category && event.category !== "personal" && (
+                <div className="mt-3 px-3 py-1.5 bg-[var(--surface-secondary)] rounded-[10px] text-[12px] font-medium text-[var(--text-secondary)]">
+                  {CATEGORIES.find(c => c.value === event.category)?.label}
                 </div>
               )}
             </div>
 
-            {/* Info */}
-            <div className="card text-center text-sm text-slate-400 space-y-2">
-              <p>Made with ❤️ for those who love to anticipate</p>
-              <p className="text-xs text-slate-500">Version 1.0 • Waiting For PWA</p>
+            <div
+              className={`flex flex-col items-center rounded-[28px] border p-12 mb-4 animate-[fadeInUp_0.4s_ease_0.05s_backwards] ${
+                isToday ? "bg-[var(--accent-light)] border-[var(--accent)]/30" : "bg-[var(--surface)] border-[var(--border)]"
+              }`}
+              style={{ boxShadow: "0 4px 20px var(--shadow)" }}
+            >
+              {isPast ? (
+                <>
+                  <span className="text-[13px] font-medium uppercase tracking-wider text-[var(--text-tertiary)] mb-2">
+                    happened
+                  </span>
+                  <CountdownNumber days={days} size="hero" customColor={isToday ? accentColor : undefined} />
+                  <span className="text-[15px] font-medium tracking-tight text-[var(--text-tertiary)] mt-3">
+                    days ago
+                  </span>
+                </>
+              ) : isToday ? (
+                <>
+                  <span className="text-[20px] font-semibold tracking-tight mb-2" style={{ color: accentColor }}>
+                    🎉 Today!
+                  </span>
+                  <CountdownNumber days={0} size="hero" customColor={accentColor} />
+                  <span className="text-[15px] font-medium tracking-tight mt-3" style={{ color: accentColor }}>
+                    days away
+                  </span>
+                </>
+              ) : (
+                <>
+                  <CountdownNumber days={days} size="hero" customColor={isToday ? accentColor : undefined} />
+                  <span className="text-[15px] font-medium tracking-tight text-[var(--text-secondary)] mt-3">
+                    {days === 1 ? "day away" : "days away"}
+                  </span>
+                </>
+              )}
             </div>
+
+            {event.notes && (
+              <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[20px] p-4 animate-[fadeInUp_0.4s_ease_0.1s_backwards]">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2">
+                  Notes
+                </p>
+                <p className="text-[15px] text-[var(--text)] leading-relaxed tracking-tight">{event.notes}</p>
+              </div>
+            )}
+          </>
+        )}
+
+        {detailTab === "feelings" && <EmotionalFeelings eventId={event.id} isDark={isDark} />}
+        {detailTab === "journey" && <CountdownJourney eventId={event.id} eventDate={event.eventDate} isDark={isDark} />}
+        {detailTab === "suggestions" && <ContextualSuggestions eventId={event.id} category={event.category} daysRemaining={days} isDark={isDark} />}
+        {detailTab === "notifications" && <NotificationPreferences eventId={event.id} eventTitle={event.title} isDark={isDark} />}
+        {detailTab === "duo" && <DuoMode eventId={event.id} isDark={isDark} />}
+      </div>
+
+      <div className="absolute bottom-0 left-0 right-0 p-4 pb-[max(env(safe-area-inset-bottom),16px)] border-t border-[var(--border-subtle)] bg-[var(--background)]">
+        {confirmDelete ? (
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="flex-1 py-[14px] rounded-[16px] text-[17px] font-semibold tracking-tight bg-[var(--surface-secondary)] text-[var(--text)]"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onDelete}
+              className="flex-1 py-[14px] rounded-[16px] text-[17px] font-semibold tracking-tight bg-[var(--destructive)] text-white"
+            >
+              Confirm Delete
+            </button>
           </div>
+        ) : (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="w-full py-[14px] rounded-[16px] text-[17px] font-semibold tracking-tight bg-[var(--destructive-light)] text-[var(--destructive)]"
+          >
+            Delete Event
+          </button>
         )}
       </div>
     </div>
-  )
+  );
 }
 
-export default function HomePage() {
-  const [mounted, setMounted] = useState(false)
+// ---------- Support Screen ----------
+function SupportScreen({ onClose }: { onClose: () => void }) {
+  const tiers = [
+    { label: "Buy us a coffee", emoji: "☕", amount: "$3" },
+    { label: "Send some love", emoji: "💜", amount: "$5" },
+    { label: "Become a supporter", emoji: "🌟", amount: "$10" },
+  ];
 
-  useEffect(() => {
-    setMounted(true)
-  }, [])
+  const features = [
+    "More themes & accent colors",
+    "Home screen widgets",
+    "Shared countdowns with friends",
+    "Continued development with no ads ever",
+  ];
 
-  if (!mounted) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="w-12 h-12 rounded-full border-4 border-cyan-500 border-t-transparent animate-spin" />
+  return (
+    <div className="fixed inset-0 z-40 bg-[var(--background)] flex flex-col animate-[slideUp_0.3s_ease]">
+      <div className="flex items-center justify-between px-4 pt-[max(env(safe-area-inset-top),12px)] pb-3 border-b border-[var(--border-subtle)]">
+        <h1 className="text-[28px] font-bold tracking-tight text-[var(--text)]">Support</h1>
+        <button onClick={onClose} className="text-[17px] font-medium text-[var(--accent)] tracking-tight">
+          Done
+        </button>
       </div>
-    )
-  }
 
-  return <HomePageContent />
+      <div className="flex-1 overflow-y-auto px-4 py-6">
+        <div className="mb-8 animate-[fadeInUp_0.4s_ease]">
+          <div className="text-[40px] mb-4 text-center">💛</div>
+          <h2 className="text-[22px] font-bold tracking-tight text-[var(--text)] text-center mb-3">
+            Waiting For is independent
+          </h2>
+          <p className="text-[15px] text-[var(--text-secondary)] text-center leading-relaxed">
+            No ads, no data selling — just a calm app built with care. If it&apos;s helped you look forward to something, consider supporting future updates.
+          </p>
+        </div>
+
+        <div className="space-y-3 mb-8">
+          {tiers.map((tier) => (
+            <button
+              key={tier.amount}
+              className="w-full flex items-center justify-between px-4 py-4 rounded-[20px] bg-[var(--surface)] border border-[var(--border)] active:bg-[var(--surface-secondary)] transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-[28px]">{tier.emoji}</span>
+                <span className="text-[15px] font-medium text-[var(--text)]">{tier.label}</span>
+              </div>
+              <span className="text-[14px] font-semibold text-[var(--text-secondary)]">{tier.amount}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[20px] p-6 mb-8">
+          <h3 className="text-[13px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-4">
+            What support enables
+          </h3>
+          <ul className="space-y-3">
+            {features.map((feature) => (
+              <li key={feature} className="flex items-start gap-3">
+                <span className="text-[16px] mt-0.5">✓</span>
+                <span className="text-[14px] text-[var(--text)]">{feature}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <p className="text-center text-[14px] text-[var(--text-tertiary)] tracking-tight">
+          Thank you for being here. 🌿
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Settings Screen ----------
+function SettingsScreen({
+  mode,
+  setThemeMode,
+  eventCount,
+  onClose,
+  onSupport,
+}: {
+  mode: ThemeMode;
+  setThemeMode: (m: ThemeMode) => void;
+  eventCount: number;
+  onClose: () => void;
+  onSupport: () => void;
+}) {
+  const options: { label: string; value: ThemeMode }[] = [
+    { label: "System", value: "system" },
+    { label: "Light", value: "light" },
+    { label: "Dark", value: "dark" },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-40 bg-[var(--background)] flex flex-col animate-[slideUp_0.3s_ease]">
+      <div className="flex items-center justify-between px-4 pt-[max(env(safe-area-inset-top),12px)] pb-3 border-b border-[var(--border-subtle)]">
+        <h1 className="text-[28px] font-bold tracking-tight text-[var(--text)]">Settings</h1>
+        <button onClick={onClose} className="text-[17px] font-medium text-[var(--accent)] tracking-tight">
+          Done
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-6">
+        <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
+          Appearance
+        </p>
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[20px] p-4 mb-6">
+          <p className="text-[12px] font-semibold tracking-tight text-[var(--text-tertiary)] mb-3">Theme</p>
+          <div className="flex gap-1">
+            {options.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setThemeMode(opt.value)}
+                className={`flex-1 py-2.5 rounded-[10px] text-[14px] tracking-tight transition-colors ${
+                  mode === opt.value
+                    ? "bg-[var(--accent)] text-white font-semibold"
+                    : "text-[var(--text-secondary)]"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
+          Community
+        </p>
+        <button
+          onClick={onSupport}
+          className="w-full flex items-center justify-between px-4 py-3.5 bg-[var(--surface)] border border-[var(--border)] rounded-[20px] mb-6 active:bg-[var(--surface-secondary)] transition-colors"
+        >
+          <span className="text-[16px] font-medium text-[var(--text)] flex items-center gap-2">
+            <span>💛</span>
+            Support Waiting For
+          </span>
+          <span className="text-[20px]">›</span>
+        </button>
+
+        <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
+          About
+        </p>
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[20px] divide-y divide-[var(--border-subtle)]">
+          <div className="flex items-center justify-between px-4 py-3.5">
+            <span className="text-[16px] tracking-tight text-[var(--text)]">Events tracked</span>
+            <span className="text-[15px] text-[var(--text-tertiary)]">{eventCount}</span>
+          </div>
+          <div className="flex items-center justify-between px-4 py-3.5">
+            <span className="text-[16px] tracking-tight text-[var(--text)]">Version</span>
+            <span className="text-[15px] text-[var(--text-tertiary)]">1.1.0</span>
+          </div>
+        </div>
+
+        <p className="text-center text-[13px] text-[var(--text-tertiary)] tracking-tight mt-12">
+          Waiting For — track what matters
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Main App ----------
+export default function WaitingForApp() {
+  const { isDark, mode, setThemeMode } = useTheme();
+  const { events, loaded, addEvent, updateEvent, deleteEvent } = useEvents();
+  const [view, setView] = useState<View>("home");
+  const [activeEventId, setActiveEventId] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<Category | "all">("all");
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [joinModalOpen, setJoinModalOpen] = useState(false);
+
+  const filterByCategory = (events: CountdownEvent[]) => {
+    if (selectedCategory === "all") return events;
+    return events.filter((e) => (e.category || "personal") === selectedCategory);
+  };
+
+  const upcoming = filterByCategory(
+    events.filter((e) => getDaysRemaining(e.eventDate, e.recurring) >= 0 || e.recurring === "yearly")
+  );
+  const past = filterByCategory(
+    events.filter((e) => getDaysRemaining(e.eventDate, e.recurring) < 0 && e.recurring !== "yearly")
+  );
+  const activeEvent = events.find((e) => e.id === activeEventId) ?? null;
+
+  const handleAdd = (data: Omit<CountdownEvent, "id" | "createdAt">) => {
+    if (view === "edit" && activeEventId) {
+      updateEvent(activeEventId, data);
+    } else {
+      addEvent(data);
+    }
+    setView("home");
+    setActiveEventId(null);
+  };
+
+  const handleDelete = () => {
+    if (activeEventId) deleteEvent(activeEventId);
+    setView("home");
+    setActiveEventId(null);
+  };
+
+  return (
+    <div
+      className={isDark ? "dark" : ""}
+      style={
+        {
+          "--background": isDark ? "#111110" : "#F7F7F5",
+          "--surface": isDark ? "#1C1C1A" : "#FFFFFF",
+          "--surface-secondary": isDark ? "#222220" : "#F2F2F0",
+          "--border": isDark ? "#2E2E2C" : "#E8E8E6",
+          "--border-subtle": isDark ? "#242422" : "#F0F0EE",
+          "--text": isDark ? "#EEEEEC" : "#1A1A1A",
+          "--text-secondary": isDark ? "#A0A09E" : "#6B6B6B",
+          "--text-tertiary": isDark ? "#666664" : "#ABABAB",
+          "--accent": isDark ? "#7B7BF5" : "#5B5BD6",
+          "--accent-light": isDark ? "#1E1E40" : "#EDEDFF",
+          "--accent-muted": isDark ? "#6060C0" : "#8B8BDE",
+          "--destructive": isDark ? "#F2555A" : "#E5484D",
+          "--destructive-light": isDark ? "#2C1515" : "#FFEFEF",
+          "--shadow": isDark ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.06)",
+          "--shadow-md": isDark ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.10)",
+        } as React.CSSProperties
+      }
+    >
+      <div className="min-h-screen bg-[var(--background)] font-sans antialiased max-w-md mx-auto relative overflow-x-hidden">
+        <style jsx global>{`
+          @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+          @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+          }
+          .scrollbar-none::-webkit-scrollbar { display: none; }
+          .scrollbar-none { scrollbar-width: none; }
+          body { background: var(--background); }
+        `}</style>
+
+        <div className="flex flex-col min-h-screen">
+          <div className="flex items-center justify-between px-5 pt-[max(env(safe-area-inset-top),16px)] pb-4 border-b border-[var(--border-subtle)] sticky top-0 bg-[var(--background)] z-20">
+            <div>
+              <h1 className="text-[28px] font-bold tracking-tight text-[var(--text)]">Waiting For</h1>
+              {events.length > 0 && (
+                <p className="text-[13px] text-[var(--text-tertiary)] tracking-tight mt-0.5">
+                  {upcoming.length} {upcoming.length === 1 ? "upcoming event" : "upcoming events"}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setJoinModalOpen(true)}
+                className="w-11 h-11 flex items-center justify-center rounded-full bg-[var(--surface-secondary)] hover:bg-[var(--border)] text-[18px] active:scale-90 transition-colors"
+                aria-label="Join countdown"
+                title="Join a friend's countdown with a code"
+              >
+                👥
+              </button>
+              <button
+                onClick={() => setView("settings")}
+                className="w-11 h-11 flex items-center justify-center rounded-full bg-[var(--surface-secondary)] hover:bg-[var(--border)] text-[18px] active:scale-90 transition-colors"
+                aria-label="Settings"
+              >
+                ⚙️
+              </button>
+              <button
+                onClick={() => {
+                  setActiveEventId(null);
+                  setView("add");
+                }}
+                className="w-11 h-11 flex items-center justify-center rounded-full bg-[var(--accent)] text-white text-[22px] font-light active:scale-90 transition-transform shadow-md"
+                aria-label="Add event"
+                style={{ lineHeight: 1 }}
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          {events.length > 0 && (
+            <div className="px-5 py-3 border-b border-[var(--border-subtle)] overflow-x-auto scrollbar-hide">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setSelectedCategory("all")}
+                  className={`px-3 py-1.5 rounded-[10px] text-[13px] font-medium tracking-tight whitespace-nowrap transition-colors active:scale-90 ${
+                    selectedCategory === "all"
+                      ? "bg-[var(--accent)] text-white shadow-md"
+                      : "bg-[var(--surface-secondary)] text-[var(--text-secondary)] hover:bg-[var(--border)]"
+                  }`}
+                  type="button"
+                >
+                  All
+                </button>
+                {CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.value}
+                    onClick={() => setSelectedCategory(cat.value)}
+                    className={`px-3 py-1.5 rounded-[10px] text-[13px] font-medium tracking-tight whitespace-nowrap transition-colors flex items-center gap-1 active:scale-90 ${
+                      selectedCategory === cat.value
+                        ? "bg-[var(--accent)] text-white shadow-md"
+                        : "bg-[var(--surface-secondary)] text-[var(--text-secondary)] hover:bg-[var(--border)]"
+                    }`}
+                    type="button"
+                  >
+                    <span>{cat.icon}</span>
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!loaded ? null : events.length === 0 ? (
+            <EmptyState />
+          ) : upcoming.length === 0 && past.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center pb-20 px-8 animate-[fadeInUp_0.5s_ease_0.2s_forwards] opacity-0">
+              <span className="text-[48px] mb-6 opacity-60">📭</span>
+              <h2 className="text-[22px] font-semibold tracking-tight text-[var(--text)] mb-2">No events here</h2>
+              <p className="text-[15px] text-[var(--text-tertiary)] text-center leading-relaxed max-w-[220px]">
+                Nothing in this category yet
+              </p>
+            </div>
+          ) : (
+            <div className="flex-1 pt-4 pb-12">
+              {upcoming.map((event, i) => (
+                <EventCard
+                  key={event.id}
+                  event={event}
+                  index={i}
+                  isDark={isDark}
+                  onOpen={() => {
+                    setActiveEventId(event.id);
+                    setView("detail");
+                  }}
+                  onDelete={() => deleteEvent(event.id)}
+                />
+              ))}
+
+              {past.length > 0 && (
+                <>
+                  <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] px-6 pt-4 pb-2">
+                    Past
+                  </p>
+                  {past.map((event, i) => (
+                    <EventCard
+                      key={event.id}
+                      event={event}
+                      index={upcoming.length + i}
+                      isDark={isDark}
+                      onOpen={() => {
+                        setActiveEventId(event.id);
+                        setView("detail");
+                      }}
+                      onDelete={() => deleteEvent(event.id)}
+                    />
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {(view === "add" || view === "edit") && (
+          <AddEditScreen
+            editing={view === "edit" ? activeEvent : null}
+            onSave={handleAdd}
+            onClose={() => {
+              setView("home");
+              setActiveEventId(null);
+            }}
+            isDark={isDark}
+          />
+        )}
+
+        {view === "detail" && activeEvent && (
+          <DetailScreen
+            event={activeEvent}
+            isDark={isDark}
+            onEdit={() => setView("edit")}
+            onDelete={handleDelete}
+            onShare={() => setShareModalOpen(true)}
+            onClose={() => {
+              setView("home");
+              setActiveEventId(null);
+            }}
+          />
+        )}
+
+        {view === "share" && activeEvent && (
+          <ShareScreen
+            event={activeEvent}
+            isDark={isDark}
+            onClose={() => setView("detail")}
+          />
+        )}
+
+        {view === "settings" && (
+          <SettingsScreen
+            mode={mode}
+            setThemeMode={setThemeMode}
+            eventCount={events.length}
+            onSupport={() => setView("support")}
+            onClose={() => setView("home")}
+          />
+        )}
+
+        {view === "support" && (
+          <SupportScreen
+            onClose={() => setView("settings")}
+          />
+        )}
+
+        <InstallPrompt />
+
+        {/* Share and Join Modals */}
+        {shareModalOpen && activeEvent && (
+          <ShareModal
+            eventTitle={activeEvent.title}
+            eventEmoji={activeEvent.emoji}
+            eventDate={new Date(activeEvent.eventDate)}
+            category={activeEvent.category}
+            color={activeEvent.color}
+            onClose={() => setShareModalOpen(false)}
+          />
+        )}
+        
+        {joinModalOpen && (
+          <JoinRoomModal
+            isOpen={joinModalOpen}
+            onClose={() => setJoinModalOpen(false)}
+          />
+        )}
+      </div>
+    </div>
+  );
 }
