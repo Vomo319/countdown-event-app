@@ -5,6 +5,8 @@ import { InstallPrompt } from "./components/InstallPrompt";
 import { ShareableRoomComponent as ShareableRoom } from "./components/ShareableRoom";
 import { ShareModal } from "./components/ShareModal";
 import { JoinRoomModal } from "./components/JoinRoomModal";
+import { RecoveryKeyDisplay } from "./components/RecoveryKeyDisplay";
+import { RestoreFromKey } from "./components/RestoreFromKey";
 import { EmotionalFeelingsComponent as EmotionalFeelings } from "./components/EmotionalFeelings";
 import { NotificationPreferencesComponent as NotificationPreferences } from "./components/NotificationPreferences";
 import { CountdownJourneyComponent as CountdownJourney } from "./components/CountdownJourney";
@@ -1311,12 +1313,16 @@ function SettingsScreen({
   eventCount,
   onClose,
   onSupport,
+  onShowRecoveryKey,
+  onShowRestoreKey,
 }: {
   mode: ThemeMode;
   setThemeMode: (m: ThemeMode) => void;
   eventCount: number;
   onClose: () => void;
   onSupport: () => void;
+  onShowRecoveryKey: () => void;
+  onShowRestoreKey: () => void;
 }) {
   const options: { label: string; value: ThemeMode }[] = [
     { label: "System", value: "system" },
@@ -1354,6 +1360,26 @@ function SettingsScreen({
               </button>
             ))}
           </div>
+        </div>
+
+        <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
+          Data & Recovery
+        </p>
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[20px] divide-y divide-[var(--border-subtle)] mb-6">
+          <button
+            onClick={onShowRecoveryKey}
+            className="w-full flex items-center justify-between px-4 py-3.5 text-left active:bg-[var(--surface-secondary)] transition-colors"
+          >
+            <span className="text-[16px] font-medium text-[var(--text)]">View Recovery Key</span>
+            <span className="text-[20px]">›</span>
+          </button>
+          <button
+            onClick={onShowRestoreKey}
+            className="w-full flex items-center justify-between px-4 py-3.5 text-left active:bg-[var(--surface-secondary)] transition-colors"
+          >
+            <span className="text-[16px] font-medium text-[var(--text)]">Restore from Key</span>
+            <span className="text-[20px]">›</span>
+          </button>
         </div>
 
         <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
@@ -1401,6 +1427,24 @@ export default function WaitingForApp() {
   const [selectedCategory, setSelectedCategory] = useState<Category | "all">("all");
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [joinModalOpen, setJoinModalOpen] = useState(false);
+  const [showRecoveryKey, setShowRecoveryKey] = useState(false);
+  const [showRestoreKey, setShowRestoreKey] = useState(false);
+
+  // Initialize recovery key on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const existing = localStorage.getItem('waiting_for_recovery_key');
+      if (!existing) {
+        const key = `${Math.random().toString(36).substring(2, 8).toUpperCase()}-${['STAR', 'MOON', 'SUN', 'BIRD', 'FISH', 'TREE', 'WIND', 'FIRE'][Math.floor(Math.random() * 8)]}`;
+        localStorage.setItem('waiting_for_recovery_key', key);
+        console.log('[v0] Recovery key created:', key);
+      }
+      if (!localStorage.getItem('waiting_for_device_id')) {
+        localStorage.setItem('waiting_for_device_id', `device_${Date.now()}_${Math.random().toString(36).substring(7)}`);
+        console.log('[v0] Device ID created');
+      }
+    }
+  }, []);
 
   const filterByCategory = (events: CountdownEvent[]) => {
     if (selectedCategory === "all") return events;
@@ -1637,6 +1681,8 @@ export default function WaitingForApp() {
             eventCount={events.length}
             onSupport={() => setView("support")}
             onClose={() => setView("home")}
+            onShowRecoveryKey={() => setShowRecoveryKey(true)}
+            onShowRestoreKey={() => setShowRestoreKey(true)}
           />
         )}
 
@@ -1664,6 +1710,18 @@ export default function WaitingForApp() {
           <JoinRoomModal
             isOpen={joinModalOpen}
             onClose={() => setJoinModalOpen(false)}
+          />
+        )}
+
+        {/* Recovery Key Modals */}
+        {showRecoveryKey && (
+          <RecoveryKeyDisplay onClose={() => setShowRecoveryKey(false)} />
+        )}
+
+        {showRestoreKey && (
+          <RestoreFromKey
+            onClose={() => setShowRestoreKey(false)}
+            onSuccess={() => window.location.reload()}
           />
         )}
       </div>
