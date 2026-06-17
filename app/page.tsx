@@ -32,7 +32,7 @@ function HomePageContent() {
       <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
         <div className="text-center space-y-4">
           <div className="w-12 h-12 rounded-full border-2 border-[var(--accent)] border-t-transparent animate-spin mx-auto" />
-          <p className="text-[var(--text-secondary)]">Setting up your countdowns...</p>
+          <p className="text-[var(--text-secondary)]">Getting your best friend ready...</p>
         </div>
       </div>
     )
@@ -184,11 +184,14 @@ function HomePageContent() {
                 </div>
               ) : (
                 <div className="text-center py-16 space-y-4">
-                  <p className="text-[18px] font-semibold text-[var(--text-secondary)]">
-                    Your countdown journey starts here
+                  <p className="text-[18px] font-semibold text-[var(--text-primary)]">
+                    Ready to count down together?
                   </p>
-                  <p className="text-[14px] text-[var(--text-tertiary)]">
-                    Add something amazing to count down to!
+                  <p className="text-[14px] text-[var(--text-secondary)]">
+                    I&apos;m your best friend for all the moments you&apos;re excited about
+                  </p>
+                  <p className="text-[13px] text-[var(--text-tertiary)]">
+                    Let&apos;s add something amazing to countdown to
                   </p>
                   <button
                     onClick={() => setShowForm(true)}
@@ -222,9 +225,9 @@ function HomePageContent() {
           // Settings View
           <div className="max-w-md space-y-6">
             <div>
-              <h2 className="text-[18px] font-bold text-[var(--text-primary)] mb-4">Recovery Key</h2>
+              <h2 className="text-[18px] font-bold text-[var(--text-primary)] mb-4">Your Special Key</h2>
               <p className="text-[13px] text-[var(--text-secondary)] mb-3">
-                Save this key to restore your countdowns on any device.
+                This is your best friend&apos;s memory. Keep it safe to bring all your countdowns back anytime.
               </p>
               <div className="bg-[var(--surface)] border border-[var(--border)] rounded-lg p-4 font-mono text-center text-[16px] font-bold text-[var(--accent)] break-all">
                 {recoveryKey}
