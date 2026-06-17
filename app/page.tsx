@@ -208,7 +208,6 @@ function useEvents() {
           }
         }
       } catch (error) {
-        console.log('[v0] Error loading events, trying localStorage');
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
           const parsed: CountdownEvent[] = JSON.parse(stored);

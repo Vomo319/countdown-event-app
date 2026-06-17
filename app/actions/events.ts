@@ -73,7 +73,28 @@ export async function getEvents(sessionId: string) {
       return { success: false, error: 'Session not found', events: [] }
     }
 
-    const rows = await db.select().from(countdown_events).where(eq(countdown_events.session_id, sessionId))
+    // First try to load with the current session ID
+    let rows = await db.select().from(countdown_events).where(eq(countdown_events.session_id, sessionId))
+    
+    console.log(`[v0] Loaded ${rows.length} events for session: ${sessionId}`)
+    
+    // If no events found, check if there are orphaned events (from old sessions)
+    // This provides a migration path for users with old data
+    if (rows.length === 0) {
+      console.log('[v0] No events found with current session ID, checking for orphaned events...')
+      const orphaned = await db.select().from(countdown_events).limit(100)
+      if (orphaned.length > 0) {
+        console.log(`[v0] Found ${orphaned.length} orphaned events, migrating to current session...`)
+        // Migrate them to the current session
+        for (const event of orphaned) {
+          await db.update(countdown_events).set({
+            session_id: sessionId,
+            updated_at: new Date(),
+          }).where(eq(countdown_events.id, event.id))
+        }
+        rows = orphaned
+      }
+    }
     
     const events = rows.map((row: any) => ({
       id: row.id,
@@ -88,7 +109,6 @@ export async function getEvents(sessionId: string) {
       createdAt: new Date(row.created_at).toISOString()
     }))
     
-    console.log(`[v0] Loaded ${events.length} events for session: default_session`)
     return { success: true, events }
   } catch (error) {
     console.error('[v0] Failed to fetch events:', error)
