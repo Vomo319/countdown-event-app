@@ -189,11 +189,9 @@ function useEvents() {
   useEffect(() => {
     const loadEvents = async () => {
       try {
-        console.log('[v0] Loading events for session:', sessionId);
         // Try to load from database first
         const result = await getEvents(sessionId);
         if (result.success && result.events) {
-          console.log('[v0] Successfully loaded', result.events.length, 'events from DB');
           const sorted = result.events.sort((a, b) => 
             a.eventDate instanceof Date 
               ? (new Date(a.eventDate) as any) - (new Date(b.eventDate) as any)
@@ -201,7 +199,6 @@ function useEvents() {
           );
           setEvents(sorted);
         } else {
-          console.log('[v0] DB query returned empty or failed, trying localStorage');
           // Fallback to localStorage if database fails
           const stored = localStorage.getItem(STORAGE_KEY);
           if (stored) {
@@ -211,7 +208,6 @@ function useEvents() {
           }
         }
       } catch (error) {
-        console.log('[v0] Error loading events, trying localStorage');
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
           const parsed: CountdownEvent[] = JSON.parse(stored);
@@ -231,8 +227,6 @@ function useEvents() {
     setEvents(sorted);
     // Save to localStorage as backup
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
-    
-    console.log('[v0] Persisting', sorted.length, 'events for session:', sessionId);
     
     // Also save each event to DB
     for (const event of sorted) {
