@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { InstallPrompt } from "./components/InstallPrompt";
 import { ShareableRoomComponent as ShareableRoom } from "./components/ShareableRoom";
+import { ShareModal } from "./components/ShareModal";
+import { JoinRoomModal } from "./components/JoinRoomModal";
 import { EmotionalFeelingsComponent as EmotionalFeelings } from "./components/EmotionalFeelings";
 import { NotificationPreferencesComponent as NotificationPreferences } from "./components/NotificationPreferences";
 import { CountdownJourneyComponent as CountdownJourney } from "./components/CountdownJourney";
@@ -1397,6 +1399,8 @@ export default function WaitingForApp() {
   const [view, setView] = useState<View>("home");
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category | "all">("all");
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [joinModalOpen, setJoinModalOpen] = useState(false);
 
   const filterByCategory = (events: CountdownEvent[]) => {
     if (selectedCategory === "all") return events;
@@ -1480,6 +1484,14 @@ export default function WaitingForApp() {
               )}
             </div>
             <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setJoinModalOpen(true)}
+                className="w-11 h-11 flex items-center justify-center rounded-full bg-[var(--surface-secondary)] hover:bg-[var(--border)] text-[18px] active:scale-90 transition-colors"
+                aria-label="Join countdown"
+                title="Join a friend's countdown with a code"
+              >
+                👥
+              </button>
               <button
                 onClick={() => setView("settings")}
                 className="w-11 h-11 flex items-center justify-center rounded-full bg-[var(--surface-secondary)] hover:bg-[var(--border)] text-[18px] active:scale-90 transition-colors"
@@ -1602,7 +1614,7 @@ export default function WaitingForApp() {
             isDark={isDark}
             onEdit={() => setView("edit")}
             onDelete={handleDelete}
-            onShare={() => setView("share")}
+            onShare={() => setShareModalOpen(true)}
             onClose={() => {
               setView("home");
               setActiveEventId(null);
@@ -1635,6 +1647,25 @@ export default function WaitingForApp() {
         )}
 
         <InstallPrompt />
+
+        {/* Share and Join Modals */}
+        {shareModalOpen && activeEvent && (
+          <ShareModal
+            eventTitle={activeEvent.title}
+            eventEmoji={activeEvent.emoji}
+            eventDate={new Date(activeEvent.eventDate)}
+            category={activeEvent.category}
+            color={activeEvent.color}
+            onClose={() => setShareModalOpen(false)}
+          />
+        )}
+        
+        {joinModalOpen && (
+          <JoinRoomModal
+            isOpen={joinModalOpen}
+            onClose={() => setJoinModalOpen(false)}
+          />
+        )}
       </div>
     </div>
   );

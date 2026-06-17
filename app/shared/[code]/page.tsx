@@ -51,10 +51,11 @@ export default function SharedRoomPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[var(--background)] flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--background)] flex items-center justify-center p-4">
         <div className="text-center">
-          <div className="text-4xl mb-4">⏳</div>
-          <p className="text-[var(--text-secondary)]">Loading countdown...</p>
+          <div className="text-6xl mb-4 animate-pulse">⏳</div>
+          <p className="text-[16px] text-[var(--text-secondary)] font-medium">Loading countdown...</p>
+          <p className="text-[13px] text-[var(--text-tertiary)] mt-2">Just a moment</p>
         </div>
       </div>
     )
@@ -63,12 +64,20 @@ export default function SharedRoomPage() {
   if (error || !room) {
     return (
       <div className="min-h-screen bg-[var(--background)] flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="text-4xl mb-4">❌</div>
-          <h1 className="text-[24px] font-bold text-[var(--text)] mb-2">Room Not Found</h1>
-          <p className="text-[var(--text-secondary)] mb-6">{error || 'This countdown is no longer available'}</p>
-          <a href="/" className="inline-block px-6 py-3 bg-[var(--accent)] text-white rounded-[12px] font-medium">
-            Create Your Own
+        <div className="text-center max-w-sm">
+          <div className="text-6xl mb-4">❌</div>
+          <h1 className="text-[24px] font-bold text-[var(--text)] mb-3">Room Not Found</h1>
+          <p className="text-[15px] text-[var(--text-secondary)] mb-2">
+            {error || 'This countdown is no longer available.'}
+          </p>
+          <p className="text-[13px] text-[var(--text-tertiary)] mb-6">
+            The share code may have expired or be incorrect.
+          </p>
+          <a 
+            href="/" 
+            className="inline-block px-6 py-3 bg-[var(--accent)] text-white rounded-[12px] font-medium text-[15px] hover:opacity-90 transition-opacity active:scale-95"
+          >
+            Create Your Own Countdown
           </a>
         </div>
       </div>
@@ -81,26 +90,29 @@ export default function SharedRoomPage() {
   const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
 
   return (
-    <div className="min-h-screen bg-[var(--background)] p-4 pt-12">
-      <div className="max-w-md mx-auto">
+    <div className="min-h-screen bg-[var(--background)] flex items-center justify-center p-4 py-12">
+      <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
-          <a href="/" className="text-[var(--accent)] text-[15px] font-medium mb-4 inline-block">
+          <a 
+            href="/" 
+            className="inline-block text-[var(--accent)] text-[15px] font-medium tracking-tight hover:opacity-70 active:opacity-50"
+          >
             ← Back to App
           </a>
         </div>
 
         {/* Shared Event Card */}
-        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[24px] overflow-hidden shadow-lg">
-          {/* Top Section */}
-          <div className="p-8 text-center border-b border-[var(--border)]">
-            <div className="text-[64px] mb-4">{room.event_emoji}</div>
-            <h1 className="text-[28px] font-bold text-[var(--text)] mb-2 text-balance">
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[28px] overflow-hidden shadow-lg animate-[fadeInUp_0.4s_ease]">
+          {/* Top Section - Event Info */}
+          <div className="p-8 text-center border-b border-[var(--border-subtle)]">
+            <div className="text-[72px] mb-4 inline-block">{room.event_emoji}</div>
+            <h1 className="text-[28px] font-bold text-[var(--text)] mb-2 text-balance tracking-tight">
               {room.event_title}
             </h1>
             
             {room.category && room.category !== 'personal' && (
-              <div className="inline-block px-3 py-1 bg-[var(--accent)]/10 rounded-[8px] text-[12px] font-medium text-[var(--accent)] mt-2">
+              <div className="inline-block mt-3 px-3 py-1 bg-[var(--accent)]/10 rounded-[10px] text-[12px] font-medium text-[var(--accent)] uppercase tracking-wider">
                 {room.category}
               </div>
             )}
@@ -108,15 +120,15 @@ export default function SharedRoomPage() {
 
           {/* Countdown Section */}
           <div className="p-8 text-center bg-gradient-to-b from-transparent to-[var(--accent)]/5">
-            <p className="text-[13px] uppercase tracking-wider text-[var(--text-tertiary)] mb-3">
-              {diffDays < 0 ? 'It happened!' : 'Counting down to...'}
+            <p className="text-[12px] uppercase tracking-widest text-[var(--text-tertiary)] mb-4 font-semibold">
+              {diffDays < 0 ? '🎉 It Happened!' : '⏳ Counting Down To...'}
             </p>
             
             <div className="mb-6">
-              <div className="text-[56px] font-bold text-[var(--accent)] font-mono">
+              <div className="text-[64px] font-bold font-mono text-[var(--accent)]">
                 {Math.abs(diffDays)}
               </div>
-              <p className="text-[16px] text-[var(--text-secondary)] mt-2">
+              <p className="text-[16px] text-[var(--text-secondary)] mt-3 font-medium tracking-tight">
                 {diffDays < 0 
                   ? `${Math.abs(diffDays)} day${Math.abs(diffDays) !== 1 ? 's' : ''} ago` 
                   : `day${Math.abs(diffDays) !== 1 ? 's' : ''} away`
@@ -124,7 +136,7 @@ export default function SharedRoomPage() {
               </p>
             </div>
 
-            <p className="text-[14px] text-[var(--text)] font-medium mb-4">
+            <p className="text-[15px] text-[var(--text)] font-medium mb-2 tracking-tight">
               {eventDate.toLocaleDateString('en-US', { 
                 weekday: 'long', 
                 year: 'numeric', 
@@ -133,30 +145,35 @@ export default function SharedRoomPage() {
               })}
             </p>
 
-            <div className="text-[12px] text-[var(--text-tertiary)]">
-              ✓ Shared {room.view_count || 1} time{(room.view_count || 1) !== 1 ? 's' : ''}
+            <div className="text-[12px] text-[var(--text-tertiary)] tracking-tight">
+              👥 Shared {(room.view_count || 1)} time{(room.view_count || 1) !== 1 ? 's' : ''}
             </div>
           </div>
 
-          {/* Footer */}
-          <div className="p-6 bg-[var(--surface-secondary)] text-center border-t border-[var(--border)]">
-            <p className="text-[12px] text-[var(--text-tertiary)] mb-4">
-              Want to create your own countdowns?
+          {/* Footer CTA */}
+          <div className="p-6 bg-[var(--surface-secondary)] text-center border-t border-[var(--border-subtle)]">
+            <p className="text-[13px] text-[var(--text-secondary)] mb-4 tracking-tight">
+              Want to create your own countdowns and share them?
             </p>
             <a 
               href="/" 
-              className="inline-block px-6 py-2.5 bg-[var(--accent)] text-white rounded-[10px] text-[14px] font-medium hover:opacity-90 transition-opacity"
+              className="inline-block px-6 py-3 bg-[var(--accent)] text-white rounded-[12px] text-[15px] font-semibold hover:opacity-90 transition-opacity active:scale-95 tracking-tight shadow-md"
             >
-              Download Waiting For
+              Get Waiting For
             </a>
           </div>
         </div>
 
-        {/* Info Text */}
-        <div className="mt-8 p-4 bg-[var(--surface)] rounded-[16px] border border-[var(--border)] text-center">
-          <p className="text-[13px] text-[var(--text-secondary)]">
-            💡 Create countdowns, share them with friends, and celebrate anticipation together on Waiting For.
+        {/* Info Card */}
+        <div className="mt-8 p-5 bg-[var(--surface-secondary)] rounded-[20px] border border-[var(--border)] text-center animate-[fadeInUp_0.4s_ease_0.1s_backwards]">
+          <p className="text-[13px] text-[var(--text-secondary)] leading-relaxed tracking-tight">
+            💡 Waiting For is a simple app for sharing anticipation. Create countdowns, share codes with friends, and celebrate together.
           </p>
+        </div>
+
+        {/* Share Hint */}
+        <div className="mt-6 text-center text-[12px] text-[var(--text-tertiary)] tracking-tight">
+          <p>🔗 Share this link or show them the code to let more people join</p>
         </div>
       </div>
     </div>
