@@ -170,6 +170,8 @@ function useEvents() {
   const [loaded, setLoaded] = useState(false);
   const [sessionId] = useState(() => {
     if (typeof window !== 'undefined') {
+      // Always return a sessionId, either from storage or generate new one
+      // The actual recovery from DB happens in getEvents() if needed
       let sid = localStorage.getItem('countdown_session_id');
       if (!sid) {
         // Generate a short, memorable ID that also serves as the recovery key
@@ -189,16 +191,20 @@ function useEvents() {
   useEffect(() => {
     const loadEvents = async () => {
       try {
+        console.log('[v0] useEffect: loading events for session:', sessionId);
         // Try to load from database first
         const result = await getEvents(sessionId);
+        console.log('[v0] useEffect: getEvents returned:', result.success, 'with', result.events?.length, 'events');
         if (result.success && result.events) {
           const sorted = result.events.sort((a, b) => 
             a.eventDate instanceof Date 
               ? (new Date(a.eventDate) as any) - (new Date(b.eventDate) as any)
               : (a.eventDate as any).localeCompare((b.eventDate as any))
           );
+          console.log('[v0] useEffect: setting', sorted.length, 'events to state');
           setEvents(sorted);
         } else {
+          console.log('[v0] useEffect: getEvents failed, trying localStorage');
           // Fallback to localStorage if database fails
           const stored = localStorage.getItem(STORAGE_KEY);
           if (stored) {
@@ -208,6 +214,7 @@ function useEvents() {
           }
         }
       } catch (error) {
+        console.log('[v0] useEffect: error during load:', error);
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
           const parsed: CountdownEvent[] = JSON.parse(stored);
