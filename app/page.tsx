@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useUserId } from "@/lib/hooks/useUserId";
 import { InstallPrompt } from "./components/InstallPrompt";
 import { ShareableRoomComponent as ShareableRoom } from "./components/ShareableRoom";
 import { ShareModal } from "./components/ShareModal";
@@ -14,7 +15,8 @@ import { ContextualSuggestionsComponent as ContextualSuggestions } from "./compo
 import { DuoModeComponent as DuoMode } from "./components/DuoMode";
 import { TimeOfDayCountdown } from "./components/TimeOfDayCountdown";
 import { YearInReviewComponent as YearInReview } from "./components/YearInReview";
-import { saveEvent, deleteEvent as deleteEventDb, getEvents } from "./actions/events";
+import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
+import { saveEvent, deleteEventDb as deleteEventDb, getEvents } from "./actions/events";
 import { createSharedRoom } from "./actions/shared-rooms";
 
 // ---------- Types ----------
@@ -162,50 +164,46 @@ function useTheme() {
 }
 
 // ---------- Events hook ----------
-// session_id is the user's permanent identity — stored in localStorage.
-// It is created once, never changes, and is used for all DB queries.
+// Uses a persistent userId (stored in localStorage for unauthenticated users).
+// Events are scoped to this userId and survive browser restarts, PWA launches, etc.
 function useEvents() {
   const [events, setEvents] = useState<CountdownEvent[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [sessionId, setSessionId] = useState<string>('');
+  const { userId, isReady } = useUserId();
 
-  // Step 1: Initialize sessionId on the client only (avoids SSR empty-string bug)
+  // Load events once we have the userId
   useEffect(() => {
-    let sid = localStorage.getItem('countdown_session_id');
-    if (!sid) {
-      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-      const rnd = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-      sid = `${rnd()}-${rnd()}-${rnd()}`;
-      localStorage.setItem('countdown_session_id', sid);
-      localStorage.setItem('waiting_for_recovery_key', sid);
-    }
-    setSessionId(sid);
-  }, []);
-
-  // Step 2: Once we have the sessionId, load events from the DB
-  useEffect(() => {
-    if (!sessionId) return;
+    if (!isReady || !userId) return;
 
     const load = async () => {
       try {
-        const result = await getEvents(sessionId);
+        console.log(`[v0] Loading events for user: ${userId.substring(0, 12)}`);
+        const result = await getEvents(userId);
         if (result.success && result.events && result.events.length > 0) {
+          console.log(`[v0] Loaded ${result.events.length} events from DB`);
           setEvents(sortByDate(result.events));
         } else {
-          // DB returned nothing — fall back to localStorage snapshot
+          console.log(`[v0] DB returned ${result.events?.length || 0} events, checking localStorage`);
+          // DB is empty — try localStorage as fallback
           const stored = localStorage.getItem(STORAGE_KEY);
           if (stored) {
             try {
-              setEvents(sortByDate(JSON.parse(stored)));
-            } catch { /* ignore bad JSON */ }
+              const parsed = JSON.parse(stored);
+              console.log(`[v0] Loaded ${parsed.length} events from localStorage`);
+              setEvents(sortByDate(parsed));
+            } catch {
+              console.error(`[v0] Failed to parse localStorage events`);
+            }
           }
         }
-      } catch {
+      } catch (error) {
+        console.error(`[v0] Error loading events:`, error);
+        // Last resort: try localStorage
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored) {
           try {
             setEvents(sortByDate(JSON.parse(stored)));
-          } catch { /* ignore bad JSON */ }
+          } catch { }
         }
       } finally {
         setLoaded(true);
@@ -213,26 +211,29 @@ function useEvents() {
     };
 
     load();
-  }, [sessionId]);
+  }, [isReady, userId]);
 
   // Sort helper
   const sortByDate = (list: CountdownEvent[]) =>
     [...list].sort((a, b) => a.eventDate.localeCompare(b.eventDate));
 
-  // Update local state + localStorage snapshot (no DB call — DB is updated separately)
+  // Update local state + localStorage snapshot (DB is updated separately)
   const setAndStore = (next: CountdownEvent[]) => {
     const sorted = sortByDate(next);
     setEvents(sorted);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
   };
 
-  const addEvent = async (data: Omit<CountdownEvent, 'id' | 'createdAt'>) => {
+  const addEvent = async (data: Omit<CountdownEvent, "id" | "createdAt">) => {
+    if (!userId) {
+      console.error("[v0] Cannot add event: no userId");
+      return;
+    }
     const newEvent: CountdownEvent = {
       ...data,
       id: generateId(),
       createdAt: new Date().toISOString(),
     };
-    // Save to DB first, then update UI
     await saveEvent(
       {
         id: newEvent.id,
@@ -245,12 +246,16 @@ function useEvents() {
         recurring: newEvent.recurring,
         color: newEvent.color,
       },
-      sessionId
+      userId
     );
     setAndStore([...events, newEvent]);
   };
 
   const updateEvent = async (id: string, updates: Partial<CountdownEvent>) => {
+    if (!userId) {
+      console.error("[v0] Cannot update event: no userId");
+      return;
+    }
     const next = events.map((e) => (e.id === id ? { ...e, ...updates } : e));
     const updated = next.find((e) => e.id === id);
     if (updated) {
@@ -266,18 +271,22 @@ function useEvents() {
           recurring: updated.recurring,
           color: updated.color,
         },
-        sessionId
+        userId
       );
     }
     setAndStore(next);
   };
 
   const deleteEvent = async (id: string) => {
-    await deleteEventDb(id, sessionId);
+    if (!userId) {
+      console.error("[v0] Cannot delete event: no userId");
+      return;
+    }
+    await deleteEventDb(id, userId);
     setAndStore(events.filter((e) => e.id !== id));
   };
 
-  return { events, loaded, addEvent, updateEvent, deleteEvent, sessionId };
+  return { events, loaded, addEvent, updateEvent, deleteEvent, userId, isReady };
 }
 
 // ---------- Photo Picker Button ----------
@@ -1418,7 +1427,7 @@ function SettingsScreen({
 // ---------- Main App ----------
 export default function WaitingForApp() {
   const { isDark, mode, setThemeMode } = useTheme();
-  const { events, loaded, addEvent, updateEvent, deleteEvent, sessionId } = useEvents();
+  const { events, loaded, addEvent, updateEvent, deleteEvent, userId, isReady } = useEvents();
   const [view, setView] = useState<View>("home");
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category | "all">("all");
@@ -1683,7 +1692,7 @@ export default function WaitingForApp() {
             eventDate={new Date(activeEvent.eventDate)}
             category={activeEvent.category}
             color={activeEvent.color}
-            creatorId={sessionId}
+            creatorId={userId}
             onClose={() => setShareModalOpen(false)}
           />
         )}
@@ -1706,6 +1715,14 @@ export default function WaitingForApp() {
             onSuccess={() => window.location.reload()}
           />
         )}
+
+        {/* Diagnostics Panel - Shows user identity and event load status */}
+        <DiagnosticsPanel 
+          userId={userId} 
+          isReady={isReady} 
+          eventCount={events.length} 
+          isLoaded={loaded}
+        />
       </div>
     </div>
   );

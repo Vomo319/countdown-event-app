@@ -87,7 +87,7 @@ export async function getSharedRoom(roomCode: string) {
 }
 
 // Copy a shared event to the current user's countdowns
-export async function copySharedEventToUser(roomCode: string, recipientSessionId: string) {
+export async function copySharedEventToUser(roomCode: string, recipientUserId: string) {
   try {
     // 1. Get the shared room
     const roomResult = await getSharedRoom(roomCode)
@@ -97,7 +97,7 @@ export async function copySharedEventToUser(roomCode: string, recipientSessionId
 
     const room = roomResult.room
 
-    // 2. Create a new countdown_event with the recipient's session_id
+    // 2. Create a new countdown_event with the recipient's userId
     const newEventId = uuidv4()
     const { countdown_events } = await import('@/lib/db/schema')
     
@@ -108,7 +108,7 @@ export async function copySharedEventToUser(roomCode: string, recipientSessionId
       event_date: new Date(room.event_date),
       category: room.category || null,
       color: room.color || null,
-      session_id: recipientSessionId,
+      userId: recipientUserId,
       notes: `Shared by ${room.creator_id}`,
       created_at: new Date(),
       updated_at: new Date(),

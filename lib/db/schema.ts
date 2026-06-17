@@ -102,7 +102,7 @@ export const countdown_events = pgTable('countdown_events', {
   category: text('category'),
   recurring: text('recurring'),
   color: text('color'),
-  session_id: text('session_id').notNull(),
+  userId: text('userId').notNull(), // Persistent user identity (replaces session_id)
   created_at: timestamp('created_at').notNull().defaultNow(),
   updated_at: timestamp('updated_at').notNull().defaultNow(),
 })
