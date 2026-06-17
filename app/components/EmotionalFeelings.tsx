@@ -37,29 +37,30 @@ export function EmotionalFeelingsComponent({
 
   return (
     <div className="space-y-6 pb-8">
-      <div className="bg-[var(--surface)] rounded-[20px] p-6 border border-[var(--border)]">
+      <div className="bg-[var(--surface)] rounded-[20px] p-6 border border-[var(--border)] shadow-sm">
         <h3 className="text-[17px] font-semibold text-[var(--text)] mb-2">How are you feeling?</h3>
         <p className="text-[13px] text-[var(--text-tertiary)] mb-4">Your emotions shape how we celebrate this moment</p>
         
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-2.5">
           {FEELINGS.map((feeling) => (
             <button
               key={feeling.value}
               onClick={() => handleSelectFeeling(feeling.value)}
-              className={`p-3 rounded-[14px] border-2 transition-all ${
+              className={`p-3 rounded-[14px] border-2 transition-all active:scale-90 min-h-[84px] flex flex-col items-center justify-center ${
                 selectedFeeling === feeling.value
-                  ? 'border-[var(--accent)] bg-[var(--accent)]/10'
-                  : 'border-[var(--border)] hover:border-[var(--accent)]/50'
+                  ? 'border-[var(--accent)] bg-[var(--accent)]/10 shadow-md'
+                  : 'border-[var(--border)] hover:border-[var(--accent)]/50 hover:bg-[var(--surface-secondary)]'
               }`}
+              type="button"
             >
               <div className="text-[28px] mb-1">{feeling.emoji}</div>
-              <div className="text-[11px] font-medium text-[var(--text)] text-center">{feeling.label}</div>
+              <div className="text-[11px] font-medium text-[var(--text)] text-center leading-tight">{feeling.label}</div>
             </button>
           ))}
         </div>
 
         {selectedFeeling && (
-          <div className="mt-4 p-3 bg-[var(--accent)]/10 border border-[var(--accent)]/30 rounded-[12px]">
+          <div className="mt-4 p-3 bg-[var(--accent)]/10 border border-[var(--accent)]/30 rounded-[12px] animate-fadeIn">
             <p className="text-[13px] text-[var(--text)] text-center">
               Feeling {FEELINGS.find(f => f.value === selectedFeeling)?.label.toLowerCase()} about this! Saved ✓
             </p>

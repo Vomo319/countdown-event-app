@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { InstallPrompt } from "./components/InstallPrompt";
 import { ShareableRoomComponent as ShareableRoom } from "./components/ShareableRoom";
+import { ShareModal } from "./components/ShareModal";
+import { JoinRoomModal } from "./components/JoinRoomModal";
 import { EmotionalFeelingsComponent as EmotionalFeelings } from "./components/EmotionalFeelings";
 import { NotificationPreferencesComponent as NotificationPreferences } from "./components/NotificationPreferences";
 import { CountdownJourneyComponent as CountdownJourney } from "./components/CountdownJourney";
@@ -10,6 +12,8 @@ import { ContextualSuggestionsComponent as ContextualSuggestions } from "./compo
 import { DuoModeComponent as DuoMode } from "./components/DuoMode";
 import { TimeOfDayCountdown } from "./components/TimeOfDayCountdown";
 import { YearInReviewComponent as YearInReview } from "./components/YearInReview";
+import { saveEvent, deleteEvent as deleteEventDb, getEvents } from "./actions/events";
+import { createSharedRoom } from "./actions/shared-rooms";
 
 // ---------- Types ----------
 type Category = "personal" | "milestone" | "travel" | "holiday";
@@ -159,40 +163,119 @@ function useTheme() {
 function useEvents() {
   const [events, setEvents] = useState<CountdownEvent[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [sessionId] = useState(() => {
+    // Generate a persistent session ID stored in localStorage (survives reloads)
+    if (typeof window !== 'undefined') {
+      let sid = localStorage.getItem('countdown_session_id');
+      if (!sid) {
+        sid = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        localStorage.setItem('countdown_session_id', sid);
+      }
+      return sid;
+    }
+    return `session_${Date.now()}`;
+  });
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed: CountdownEvent[] = JSON.parse(stored);
-        parsed.sort((a, b) => a.eventDate.localeCompare(b.eventDate));
-        setEvents(parsed);
+    const loadEvents = async () => {
+      try {
+        // Try to load from database first
+        const result = await getEvents(sessionId);
+        if (result.success && result.events) {
+          const sorted = result.events.sort((a, b) => 
+            a.eventDate instanceof Date 
+              ? (new Date(a.eventDate) as any) - (new Date(b.eventDate) as any)
+              : (a.eventDate as any).localeCompare((b.eventDate as any))
+          );
+          setEvents(sorted);
+        } else {
+          // Fallback to localStorage if database fails
+          const stored = localStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            const parsed: CountdownEvent[] = JSON.parse(stored);
+            parsed.sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+            setEvents(parsed);
+          }
+        }
+      } catch (error) {
+        console.log('[v0] Error loading events, trying localStorage');
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const parsed: CountdownEvent[] = JSON.parse(stored);
+          parsed.sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+          setEvents(parsed);
+        }
+      } finally {
+        setLoaded(true);
       }
-    } catch {}
-    setLoaded(true);
-  }, []);
+    };
+    
+    loadEvents();
+  }, [sessionId]);
 
-  const persist = (next: CountdownEvent[]) => {
+  const persist = async (next: CountdownEvent[]) => {
     const sorted = [...next].sort((a, b) => a.eventDate.localeCompare(b.eventDate));
     setEvents(sorted);
+    // Save to localStorage as backup
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sorted));
   };
 
-  const addEvent = (data: Omit<CountdownEvent, "id" | "createdAt">) => {
+  const addEvent = async (data: Omit<CountdownEvent, "id" | "createdAt">) => {
     const newEvent: CountdownEvent = {
       ...data,
       id: generateId(),
       createdAt: new Date().toISOString(),
     };
-    persist([...events, newEvent]);
+    
+    // Save to database
+    await saveEvent({
+      id: newEvent.id,
+      title: newEvent.title,
+      emoji: newEvent.emoji,
+      eventDate: new Date(newEvent.eventDate),
+      notes: newEvent.notes,
+      photo: newEvent.photo,
+      category: newEvent.category,
+      recurring: newEvent.recurring,
+      color: newEvent.color,
+    }, sessionId).catch(err => {
+      console.log('[v0] Database save failed, using localStorage');
+    });
+    
+    await persist([...events, newEvent]);
   };
 
-  const updateEvent = (id: string, updates: Partial<CountdownEvent>) => {
-    persist(events.map((e) => (e.id === id ? { ...e, ...updates } : e)));
+  const updateEvent = async (id: string, updates: Partial<CountdownEvent>) => {
+    const updated = events.map((e) => (e.id === id ? { ...e, ...updates } : e));
+    
+    // Find the updated event
+    const updatedEvent = updated.find(e => e.id === id);
+    if (updatedEvent) {
+      await saveEvent({
+        id: updatedEvent.id,
+        title: updatedEvent.title,
+        emoji: updatedEvent.emoji,
+        eventDate: new Date(updatedEvent.eventDate),
+        notes: updatedEvent.notes,
+        photo: updatedEvent.photo,
+        category: updatedEvent.category,
+        recurring: updatedEvent.recurring,
+        color: updatedEvent.color,
+      }, sessionId).catch(err => {
+        console.log('[v0] Database update failed, using localStorage');
+      });
+    }
+    
+    await persist(updated);
   };
 
-  const deleteEvent = (id: string) => {
-    persist(events.filter((e) => e.id !== id));
+  const deleteEvent = async (id: string) => {
+    // Delete from database
+    await deleteEventDb(id, sessionId).catch(err => {
+      console.log('[v0] Database delete failed, using localStorage');
+    });
+    
+    await persist(events.filter((e) => e.id !== id));
   };
 
   return { events, loaded, addEvent, updateEvent, deleteEvent };
@@ -353,19 +436,50 @@ function ShareScreen({
   } until ${event.title} ${event.emoji}`;
 
   const handleShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: "Waiting For",
-          text: shareText,
-        });
-      } catch (err) {
-        // User cancelled
+    if (!event) return;
+    
+    try {
+      // Create a shareable room in the database
+      const roomResult = await createSharedRoom(
+        event.title,
+        event.emoji,
+        new Date(event.eventDate),
+        event.category,
+        event.color,
+        sessionId
+      );
+
+      if (roomResult.success && roomResult.room) {
+        const roomCode = roomResult.room.room_code;
+        const shareUrl = `${window.location.origin}/shared/${roomCode}`;
+        const shareText = `Check out "${event.title}" ${event.emoji} on Waiting For!\n${shareUrl}`;
+        
+        if (navigator.share) {
+          try {
+            await navigator.share({
+              title: "Waiting For",
+              text: shareText,
+              url: shareUrl,
+            });
+          } catch (err) {
+            // User cancelled share dialog
+            await navigator.clipboard.writeText(shareUrl);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          }
+        } else {
+          // Fallback to clipboard
+          await navigator.clipboard.writeText(shareUrl);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }
+      } else {
+        console.error('[v0] Failed to create share room:', roomResult.error);
+        alert('Failed to create shareable link');
       }
-    } else {
-      await navigator.clipboard.writeText(shareText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+    } catch (error) {
+      console.error('[v0] Share error:', error);
+      alert('Error creating shareable link');
     }
   };
 
@@ -554,13 +668,13 @@ function EventCard({
         onPointerUp={handlePointerUp}
         onPointerLeave={dragging ? handlePointerUp : undefined}
         onClick={() => dragX === 0 && onOpen()}
-        className={`relative flex items-center justify-between bg-[var(--surface)] border rounded-[20px] px-4 py-[18px] cursor-pointer select-none transition-all duration-300 active:scale-[0.985] overflow-hidden ${
-          isToday ? "border-[var(--accent)]/30" : "border-[var(--border)]"
+        className={`relative flex items-center justify-between bg-[var(--surface)] border rounded-[20px] px-4 py-[18px] cursor-pointer select-none transition-all duration-300 active:scale-[0.98] overflow-hidden ${
+          isToday ? "border-[var(--accent)]/30 shadow-md" : "border-[var(--border)]"
         } ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"}`}
         style={{
           transform: `translateX(${dragX}px)`,
           transition: dragging ? "none" : "transform 0.3s ease, opacity 0.3s, translate 0.3s",
-          boxShadow: "0 2px 12px var(--shadow-md)",
+          boxShadow: isToday ? `0 0 0 1px var(--accent)/20, 0 4px 16px var(--shadow-md)` : "0 2px 12px var(--shadow-md)",
           touchAction: "pan-y",
           backgroundImage: hasPhoto ? `url(${event.photo})` : undefined,
           backgroundSize: "cover",
@@ -778,7 +892,7 @@ function AddEditScreen({
   return (
     <div className="fixed inset-0 z-40 bg-[var(--background)] flex flex-col animate-[slideUp_0.3s_ease]">
       <div className="flex items-center justify-between px-4 pt-[max(env(safe-area-inset-top),12px)] pb-3 border-b border-[var(--border-subtle)]">
-        <button onClick={onClose} className="w-16 text-[17px] text-[var(--text-secondary)] text-left">
+        <button onClick={onClose} className="w-16 text-[17px] text-[var(--text-secondary)] text-left font-medium">
           Cancel
         </button>
         <h1 className="text-[17px] font-semibold tracking-tight text-[var(--text)]">
@@ -787,7 +901,7 @@ function AddEditScreen({
         <div className="w-16" />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 pb-32">
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-24">
         <div className="mb-6">
           <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
             Cover Photo
@@ -799,10 +913,11 @@ function AddEditScreen({
           />
         </div>
 
-        <div className="flex items-center bg-[var(--surface)] border border-[var(--border)] rounded-[20px] overflow-hidden">
+        <div className="flex items-center bg-[var(--surface)] border border-[var(--border)] rounded-[20px] overflow-hidden shadow-sm">
           <button
             onClick={() => setShowEmojiPicker(true)}
-            className="w-14 h-14 flex items-center justify-center bg-[var(--surface-secondary)] rounded-[14px] m-4 mr-0 text-[30px] shrink-0"
+            className="w-14 h-14 flex items-center justify-center bg-[var(--surface-secondary)] hover:bg-[var(--accent)]/10 rounded-[14px] m-4 mr-0 text-[30px] shrink-0 transition-colors active:scale-90"
+            type="button"
           >
             {emoji}
           </button>
@@ -827,22 +942,23 @@ function AddEditScreen({
           <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
             Date
           </p>
-          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[20px] p-2">
+          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[20px] p-2 shadow-sm">
             <DatePicker value={date} onChange={setDate} />
           </div>
         </div>
 
         <div className="mt-6">
-          <div className="flex items-center justify-between px-4 py-3 bg-[var(--surface)] border border-[var(--border)] rounded-[20px]">
+          <div className="flex items-center justify-between px-4 py-3 bg-[var(--surface)] border border-[var(--border)] rounded-[20px] shadow-sm">
             <div>
               <p className="text-[14px] font-medium text-[var(--text)]">Repeats yearly</p>
               <p className="text-[12px] text-[var(--text-tertiary)] mt-0.5">For birthdays & anniversaries</p>
             </div>
             <button
               onClick={() => setRecurring(recurring === "yearly" ? "none" : "yearly")}
-              className={`w-12 h-7 rounded-full transition-colors flex items-center ${
+              className={`w-12 h-7 rounded-full transition-colors flex items-center active:scale-90 ${
                 recurring === "yearly" ? "bg-[var(--accent)]" : "bg-[var(--border)]"
               }`}
+              type="button"
             >
               <div className={`w-6 h-6 rounded-full bg-white transition-transform ${
                 recurring === "yearly" ? "translate-x-5" : "translate-x-0.5"
@@ -858,11 +974,11 @@ function AddEditScreen({
           <ColorSwatches selected={color} isDark={isDark} onSelect={setColor} />
         </div>
 
-        <div className="mt-6">
+        <div className="mt-6 mb-8">
           <p className="text-[12px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 ml-1">
             Notes
           </p>
-          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[20px]">
+          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-[20px] shadow-sm">
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -875,13 +991,13 @@ function AddEditScreen({
         </div>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 p-4 pb-[max(env(safe-area-inset-bottom),16px)] border-t border-[var(--border-subtle)] bg-[var(--background)]">
+      <div className="fixed bottom-0 left-0 right-0 p-4 pb-[max(env(safe-area-inset-bottom),16px)] border-t border-[var(--border-subtle)] bg-[var(--background)]">
         <button
           onClick={handleSave}
           disabled={!title.trim()}
-          className={`w-full py-[14px] rounded-[16px] text-[17px] font-semibold tracking-tight transition-colors cursor-pointer ${
+          className={`w-full py-[14px] rounded-[16px] text-[17px] font-semibold tracking-tight transition-colors cursor-pointer active:scale-[0.98] ${
             title.trim()
-              ? "bg-[var(--accent)] text-white active:opacity-90"
+              ? "bg-[var(--accent)] text-white shadow-md active:opacity-90"
               : "bg-[var(--border)] text-[var(--text-tertiary)] cursor-not-allowed opacity-50"
           }`}
         >
@@ -925,49 +1041,52 @@ function DetailScreen({
 
   return (
     <div className="fixed inset-0 z-40 bg-[var(--background)] flex flex-col animate-[fadeIn_0.25s_ease]">
-      <div className="flex items-center justify-between px-4 pt-[max(env(safe-area-inset-top),12px)] pb-3 border-b border-[var(--border-subtle)]">
-        <button onClick={onClose} className="text-[17px] font-medium text-[var(--accent)] tracking-tight">
+      <div className="flex items-center justify-between px-4 pt-[max(env(safe-area-inset-top),12px)] pb-3 border-b border-[var(--border-subtle)] bg-[var(--background)]">
+        <button onClick={onClose} className="text-[17px] font-medium text-[var(--accent)] tracking-tight active:opacity-70 min-w-[44px] h-[44px] flex items-center">
           ‹ Back
         </button>
-        <div className="flex gap-3">
-          <button onClick={onShare} className="text-[17px] font-medium text-[var(--accent)] tracking-tight">
+        <div className="flex gap-2">
+          <button onClick={onShare} className="text-[17px] font-medium text-[var(--accent)] tracking-tight active:opacity-70 px-3 min-h-[44px] flex items-center">
             Share
           </button>
-          <button onClick={onEdit} className="text-[17px] font-medium text-[var(--accent)] tracking-tight">
+          <button onClick={onEdit} className="text-[17px] font-medium text-[var(--accent)] tracking-tight active:opacity-70 px-3 min-h-[44px] flex items-center">
             Edit
           </button>
         </div>
       </div>
 
       {/* Feature Tabs */}
-      <div className="px-2 pt-3 pb-2 overflow-x-auto flex gap-2 border-b border-[var(--border-subtle)]">
+      <div className="px-2 pt-3 pb-2 overflow-x-auto flex gap-2 border-b border-[var(--border-subtle)] scrollbar-hide">
         <button
           onClick={() => setDetailTab("overview")}
-          className={`px-4 py-2 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap ${
+          className={`px-4 py-2.5 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap active:scale-90 ${
             detailTab === "overview"
-              ? "bg-[var(--accent)] text-white"
+              ? "bg-[var(--accent)] text-white shadow-md"
               : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
           }`}
+          type="button"
         >
           Overview
         </button>
         <button
           onClick={() => setDetailTab("feelings")}
-          className={`px-4 py-2 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap ${
+          className={`px-4 py-2.5 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap active:scale-90 ${
             detailTab === "feelings"
-              ? "bg-[var(--accent)] text-white"
+              ? "bg-[var(--accent)] text-white shadow-md"
               : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
           }`}
+          type="button"
         >
           💭 Feelings
         </button>
         <button
           onClick={() => setDetailTab("journey")}
-          className={`px-4 py-2 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap ${
+          className={`px-4 py-2.5 rounded-[12px] text-[13px] font-medium transition-colors whitespace-nowrap active:scale-90 ${
             detailTab === "journey"
-              ? "bg-[var(--accent)] text-white"
+              ? "bg-[var(--accent)] text-white shadow-md"
               : "text-[var(--text-secondary)] hover:bg-[var(--surface)]"
           }`}
+          type="button"
         >
           🗺️ Journey
         </button>
@@ -1280,6 +1399,8 @@ export default function WaitingForApp() {
   const [view, setView] = useState<View>("home");
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category | "all">("all");
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [joinModalOpen, setJoinModalOpen] = useState(false);
 
   const filterByCategory = (events: CountdownEvent[]) => {
     if (selectedCategory === "all") return events;
@@ -1353,7 +1474,7 @@ export default function WaitingForApp() {
         `}</style>
 
         <div className="flex flex-col min-h-screen">
-          <div className="flex items-center justify-between px-5 pt-[max(env(safe-area-inset-top),16px)] pb-4 border-b border-[var(--border-subtle)] sticky top-0 bg-[var(--background)] z-10">
+          <div className="flex items-center justify-between px-5 pt-[max(env(safe-area-inset-top),16px)] pb-4 border-b border-[var(--border-subtle)] sticky top-0 bg-[var(--background)] z-20">
             <div>
               <h1 className="text-[28px] font-bold tracking-tight text-[var(--text)]">Waiting For</h1>
               {events.length > 0 && (
@@ -1362,10 +1483,18 @@ export default function WaitingForApp() {
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setJoinModalOpen(true)}
+                className="w-11 h-11 flex items-center justify-center rounded-full bg-[var(--surface-secondary)] hover:bg-[var(--border)] text-[18px] active:scale-90 transition-colors"
+                aria-label="Join countdown"
+                title="Join a friend's countdown with a code"
+              >
+                👥
+              </button>
               <button
                 onClick={() => setView("settings")}
-                className="w-10 h-10 flex items-center justify-center rounded-full bg-[var(--surface-secondary)] text-[18px]"
+                className="w-11 h-11 flex items-center justify-center rounded-full bg-[var(--surface-secondary)] hover:bg-[var(--border)] text-[18px] active:scale-90 transition-colors"
                 aria-label="Settings"
               >
                 ⚙️
@@ -1375,7 +1504,7 @@ export default function WaitingForApp() {
                   setActiveEventId(null);
                   setView("add");
                 }}
-                className="w-10 h-10 flex items-center justify-center rounded-full bg-[var(--accent)] text-white text-[22px] font-light active:opacity-90"
+                className="w-11 h-11 flex items-center justify-center rounded-full bg-[var(--accent)] text-white text-[22px] font-light active:scale-90 transition-transform shadow-md"
                 aria-label="Add event"
                 style={{ lineHeight: 1 }}
               >
@@ -1385,15 +1514,16 @@ export default function WaitingForApp() {
           </div>
 
           {events.length > 0 && (
-            <div className="px-5 py-3 border-b border-[var(--border-subtle)] overflow-x-auto scrollbar-none">
+            <div className="px-5 py-3 border-b border-[var(--border-subtle)] overflow-x-auto scrollbar-hide">
               <div className="flex gap-2">
                 <button
                   onClick={() => setSelectedCategory("all")}
-                  className={`px-3 py-1.5 rounded-[10px] text-[13px] font-medium tracking-tight whitespace-nowrap transition-colors ${
+                  className={`px-3 py-1.5 rounded-[10px] text-[13px] font-medium tracking-tight whitespace-nowrap transition-colors active:scale-90 ${
                     selectedCategory === "all"
-                      ? "bg-[var(--accent)] text-white"
+                      ? "bg-[var(--accent)] text-white shadow-md"
                       : "bg-[var(--surface-secondary)] text-[var(--text-secondary)] hover:bg-[var(--border)]"
                   }`}
+                  type="button"
                 >
                   All
                 </button>
@@ -1401,11 +1531,12 @@ export default function WaitingForApp() {
                   <button
                     key={cat.value}
                     onClick={() => setSelectedCategory(cat.value)}
-                    className={`px-3 py-1.5 rounded-[10px] text-[13px] font-medium tracking-tight whitespace-nowrap transition-colors flex items-center gap-1 ${
+                    className={`px-3 py-1.5 rounded-[10px] text-[13px] font-medium tracking-tight whitespace-nowrap transition-colors flex items-center gap-1 active:scale-90 ${
                       selectedCategory === cat.value
-                        ? "bg-[var(--accent)] text-white"
+                        ? "bg-[var(--accent)] text-white shadow-md"
                         : "bg-[var(--surface-secondary)] text-[var(--text-secondary)] hover:bg-[var(--border)]"
                     }`}
+                    type="button"
                   >
                     <span>{cat.icon}</span>
                     {cat.label}
@@ -1483,7 +1614,7 @@ export default function WaitingForApp() {
             isDark={isDark}
             onEdit={() => setView("edit")}
             onDelete={handleDelete}
-            onShare={() => setView("share")}
+            onShare={() => setShareModalOpen(true)}
             onClose={() => {
               setView("home");
               setActiveEventId(null);
@@ -1516,6 +1647,25 @@ export default function WaitingForApp() {
         )}
 
         <InstallPrompt />
+
+        {/* Share and Join Modals */}
+        {shareModalOpen && activeEvent && (
+          <ShareModal
+            eventTitle={activeEvent.title}
+            eventEmoji={activeEvent.emoji}
+            eventDate={new Date(activeEvent.eventDate)}
+            category={activeEvent.category}
+            color={activeEvent.color}
+            onClose={() => setShareModalOpen(false)}
+          />
+        )}
+        
+        {joinModalOpen && (
+          <JoinRoomModal
+            isOpen={joinModalOpen}
+            onClose={() => setJoinModalOpen(false)}
+          />
+        )}
       </div>
     </div>
   );

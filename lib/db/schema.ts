@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, integer } from 'drizzle-orm/pg-core'
 
 // --- Better Auth required tables -------------------------------------------
 // Column names are camelCase to match Better Auth's defaults. Do not rename.
@@ -77,3 +77,32 @@ export const verification = pgTable('verification', {
 //   userId: text("userId")
 //     .notNull()
 //     .references(() => user.id, { onDelete: "cascade" }),
+
+export const shared_rooms = pgTable('shared_rooms', {
+  id: text('id').primaryKey(),
+  room_code: text('room_code').notNull().unique(),
+  creator_id: text('creator_id').notNull(),
+  event_title: text('event_title').notNull(),
+  event_emoji: text('event_emoji').notNull(),
+  event_date: timestamp('event_date').notNull(),
+  category: text('category'),
+  color: text('color'),
+  view_count: integer('view_count').default(0),
+  created_at: timestamp('created_at').notNull().defaultNow(),
+  updated_at: timestamp('updated_at').notNull().defaultNow(),
+})
+
+export const countdown_events = pgTable('countdown_events', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  emoji: text('emoji').notNull(),
+  event_date: timestamp('event_date').notNull(),
+  notes: text('notes'),
+  photo: text('photo'),
+  category: text('category'),
+  recurring: text('recurring'),
+  color: text('color'),
+  session_id: text('session_id').notNull(),
+  created_at: timestamp('created_at').notNull().defaultNow(),
+  updated_at: timestamp('updated_at').notNull().defaultNow(),
+})

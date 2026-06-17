@@ -24,12 +24,19 @@ export function ShareableRoomComponent({
   const [copied, setCopied] = useState(false)
   const [loading, setLoading] = useState(false)
 
+  useEffect(() => {
+    generateRoomCode()
+  }, [eventTitle, eventEmoji, eventDate])
+
   const generateRoomCode = async () => {
     setLoading(true)
     try {
       const result = await createSharedRoom(eventTitle, eventEmoji, eventDate, category, color)
-      if (result.success) {
+      if (result.success && result.room) {
         setRoomCode(result.room.room_code)
+        console.log('[v0] Room code generated:', result.room.room_code)
+      } else {
+        console.error('[v0] Failed to create room:', result.error)
       }
     } catch (error) {
       console.error('[v0] Failed to generate room code:', error)
