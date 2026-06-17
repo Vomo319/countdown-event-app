@@ -14,8 +14,9 @@ export function CountdownJourneyComponent({
   isDark,
 }: CountdownJourneyProps) {
   const now = new Date()
-  const daysRemaining = Math.ceil((eventDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
-  const totalDays = Math.abs(daysRemaining)
+  const targetDate = typeof eventDate === 'string' ? new Date(eventDate) : eventDate
+  const daysRemaining = Math.ceil((targetDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+  const totalDays = Math.max(daysRemaining, 1)
   
   const milestones = [
     { percent: 0, label: 'Journey Begins', days: totalDays },
