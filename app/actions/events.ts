@@ -16,14 +16,22 @@ export interface CountdownEventData {
   color?: string
 }
 
-// Load all events for a given session_id — simple, no migration magic
-export async function getEvents(sessionId: string) {
-  if (!sessionId) return { success: false, error: 'No session ID', events: [] }
+/**
+ * Load all events for the given user.
+ * Simple query: no migration logic, no session juggling.
+ */
+export async function getEvents(userId: string) {
+  if (!userId) {
+    console.error('[v0] getEvents called with empty userId')
+    return { success: false, error: 'No user ID', events: [] }
+  }
   try {
     const rows = await db
       .select()
       .from(countdown_events)
-      .where(eq(countdown_events.session_id, sessionId))
+      .where(eq(countdown_events.userId, userId))
+
+    console.log(`[v0] Loaded ${rows.length} events for user ${userId.substring(0, 8)}`)
 
     const events = rows.map((row) => ({
       id: row.id,
@@ -45,16 +53,20 @@ export async function getEvents(sessionId: string) {
   }
 }
 
-// Upsert a single event — insert or update based on whether it exists
-export async function saveEvent(data: CountdownEventData, sessionId: string) {
-  if (!sessionId || !data.id || !data.title) {
+/**
+ * Upsert a single event — insert or update based on whether it exists.
+ * Always scoped to the user's ID to prevent data leakage.
+ */
+export async function saveEvent(data: CountdownEventData, userId: string) {
+  if (!userId || !data.id || !data.title) {
+    console.error('[v0] saveEvent: missing required data')
     return { success: false, error: 'Invalid data' }
   }
   try {
     const existing = await db
       .select({ id: countdown_events.id })
       .from(countdown_events)
-      .where(eq(countdown_events.id, data.id))
+      .where(and(eq(countdown_events.id, data.id), eq(countdown_events.userId, userId)))
       .limit(1)
 
     if (existing.length > 0) {
@@ -71,7 +83,7 @@ export async function saveEvent(data: CountdownEventData, sessionId: string) {
           color: data.color ?? null,
           updated_at: new Date(),
         })
-        .where(and(eq(countdown_events.id, data.id), eq(countdown_events.session_id, sessionId)))
+        .where(and(eq(countdown_events.id, data.id), eq(countdown_events.userId, userId)))
     } else {
       await db.insert(countdown_events).values({
         id: data.id,
@@ -83,7 +95,7 @@ export async function saveEvent(data: CountdownEventData, sessionId: string) {
         category: data.category ?? null,
         recurring: data.recurring ?? null,
         color: data.color ?? null,
-        session_id: sessionId,
+        userId: userId,
         created_at: new Date(),
         updated_at: new Date(),
       })
@@ -96,16 +108,22 @@ export async function saveEvent(data: CountdownEventData, sessionId: string) {
   }
 }
 
-// Delete a single event scoped to the session
-export async function deleteEvent(id: string, sessionId: string) {
-  if (!id || !sessionId) return { success: false, error: 'Invalid parameters' }
+/**
+ * Delete a single event scoped to the user.
+ */
+export async function deleteEventDb(id: string, userId: string) {
+  if (!id || !userId) {
+    console.error('[v0] deleteEventDb: missing required params')
+    return { success: false, error: 'Invalid parameters' }
+  }
   try {
     await db
       .delete(countdown_events)
-      .where(and(eq(countdown_events.id, id), eq(countdown_events.session_id, sessionId)))
+      .where(and(eq(countdown_events.id, id), eq(countdown_events.userId, userId)))
     return { success: true }
   } catch (error) {
-    console.error('[v0] deleteEvent error:', error)
+    console.error('[v0] deleteEventDb error:', error)
     return { success: false, error: 'Failed to delete event' }
   }
 }
+

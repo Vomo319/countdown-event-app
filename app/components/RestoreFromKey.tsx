@@ -23,10 +23,9 @@ export function RestoreFromKey({ onClose, onSuccess }: RestoreFromKeyProps) {
     setError('')
 
     try {
-      // The recovery key IS the session_id used as the DB identity.
-      // Overwriting countdown_session_id makes the app load that user's events on reload.
-      localStorage.setItem('countdown_session_id', trimmed)
-      localStorage.setItem('waiting_for_recovery_key', trimmed)
+      // The recovery key is the client user ID.
+      // Overwriting client_user_id makes the app load that user's events on reload.
+      localStorage.setItem('client_user_id', trimmed)
       // Clear local cache so fresh DB data loads
       localStorage.removeItem('waiting_for_events_v1')
       setTimeout(() => {
