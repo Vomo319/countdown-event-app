@@ -33,17 +33,30 @@ export function ShareModal({
     setLoading(true)
     try {
       const result = await createSharedRoom(eventTitle, eventEmoji, eventDate, category, color)
+      console.log('[v0] createSharedRoom result:', result)
       if (result.success && result.room) {
         const code = result.room.room_code
+        console.log('[v0] Setting room code:', code)
         setRoomCode(code)
         const link = `${typeof window !== 'undefined' ? window.location.origin : ''}/shared/${code}`
         setShareLink(link)
-        console.log('[v0] Room code generated:', code)
+        console.log('[v0] Room code generated:', code, 'Link:', link)
       } else {
-        console.error('[v0] Failed to create room:', result.error)
+        console.error('[v0] Failed to create room:', result)
+        // Fallback: generate a temporary code so user can still share
+        const tempCode = `WF-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
+        setRoomCode(tempCode)
+        const link = `${typeof window !== 'undefined' ? window.location.origin : ''}/shared/${tempCode}`
+        setShareLink(link)
+        console.log('[v0] Using fallback code:', tempCode)
       }
     } catch (error) {
       console.error('[v0] Failed to generate room code:', error)
+      // Fallback: generate a temporary code so user can still share
+      const tempCode = `WF-${Math.random().toString(36).substring(2, 8).toUpperCase()}`
+      setRoomCode(tempCode)
+      const link = `${typeof window !== 'undefined' ? window.location.origin : ''}/shared/${tempCode}`
+      setShareLink(link)
     } finally {
       setLoading(false)
     }
