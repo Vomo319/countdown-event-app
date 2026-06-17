@@ -14,7 +14,8 @@ export function RecoveryKeyDisplay({ onClose }: RecoveryKeyDisplayProps) {
   useEffect(() => {
     setMounted(true)
     if (typeof window !== 'undefined') {
-      const key = localStorage.getItem('waiting_for_recovery_key') || ''
+      // The recovery key IS the session_id — the permanent DB identity
+      const key = localStorage.getItem('countdown_session_id') || localStorage.getItem('waiting_for_recovery_key') || ''
       setRecoveryKey(key)
     }
   }, [])

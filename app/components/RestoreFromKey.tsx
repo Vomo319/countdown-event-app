@@ -13,7 +13,8 @@ export function RestoreFromKey({ onClose, onSuccess }: RestoreFromKeyProps) {
   const [loading, setLoading] = useState(false)
 
   const handleRestore = async () => {
-    if (!code.trim()) {
+    const trimmed = code.trim().toUpperCase()
+    if (!trimmed) {
       setError('Please enter your recovery key')
       return
     }
@@ -22,17 +23,16 @@ export function RestoreFromKey({ onClose, onSuccess }: RestoreFromKeyProps) {
     setError('')
 
     try {
-      const storedKey = localStorage.getItem('waiting_for_recovery_key')
-      if (storedKey === code.toUpperCase()) {
-        localStorage.setItem('waiting_for_device_id', Math.random().toString(36).substring(7))
-        setTimeout(() => {
-          onSuccess()
-          onClose()
-        }, 500)
-      } else {
-        setError('Invalid recovery key. Please check and try again.')
-      }
-    } catch (err) {
+      // The recovery key IS the session_id used as the DB identity.
+      // Overwriting countdown_session_id makes the app load that user's events on reload.
+      localStorage.setItem('countdown_session_id', trimmed)
+      localStorage.setItem('waiting_for_recovery_key', trimmed)
+      // Clear local cache so fresh DB data loads
+      localStorage.removeItem('waiting_for_events_v1')
+      setTimeout(() => {
+        onSuccess()
+      }, 300)
+    } catch {
       setError('Failed to restore. Please try again.')
     } finally {
       setLoading(false)
@@ -63,8 +63,8 @@ export function RestoreFromKey({ onClose, onSuccess }: RestoreFromKeyProps) {
                 setCode(e.target.value.toUpperCase())
                 setError('')
               }}
-              placeholder="e.g., K7F9Q2-MOON"
-              maxLength={20}
+              placeholder="e.g., AB3C-DE4F-GH5J"
+              maxLength={14}
               className="w-full px-4 py-3 bg-[var(--surface)] border-2 border-[var(--border)] rounded-[14px] text-[16px] font-mono text-[var(--text)] placeholder-[var(--text-tertiary)] outline-none focus:border-[var(--accent)] transition-colors text-center"
             />
           </div>

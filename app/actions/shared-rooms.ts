@@ -27,59 +27,36 @@ export async function createSharedRoom(
   try {
     const roomCode = generateRoomCode()
     const id = uuidv4()
-    const now = new Date()
-    
-    console.log('[v0] Creating shared room with code:', roomCode)
-    
-    await db
-      .insert(shared_rooms)
-      .values({
+
+    await db.insert(shared_rooms).values({
+      id,
+      room_code: roomCode,
+      creator_id: creatorId || 'anonymous',
+      event_title: eventTitle,
+      event_emoji: eventEmoji,
+      event_date: eventDate,
+      category: category ?? null,
+      color: color ?? null,
+      view_count: 0,
+    })
+
+    return {
+      success: true,
+      room: {
         id,
         room_code: roomCode,
         creator_id: creatorId || 'anonymous',
         event_title: eventTitle,
         event_emoji: eventEmoji,
         event_date: eventDate,
-        category,
-        color,
-        created_at: now,
-        updated_at: now,
+        category: category ?? null,
+        color: color ?? null,
         view_count: 0,
-      })
-    
-    // Fetch back the created room to confirm
-    const result = await db
-      .select()
-      .from(shared_rooms)
-      .where(eq(shared_rooms.id, id))
-      .limit(1)
-    
-    if (result.length > 0) {
-      console.log('[v0] Room created successfully:', result[0])
-      return { success: true, room: result[0] }
-    } else {
-      console.error('[v0] Room was inserted but not found on select')
-      // Still return success with constructed room object
-      return {
-        success: true,
-        room: {
-          id,
-          room_code: roomCode,
-          creator_id: creatorId || 'anonymous',
-          event_title: eventTitle,
-          event_emoji: eventEmoji,
-          event_date: eventDate,
-          category,
-          color,
-          created_at: now,
-          updated_at: now,
-          view_count: 0,
-        }
       }
     }
   } catch (error) {
     console.error('[v0] Failed to create shared room:', error)
-    return { success: false, error: 'Failed to create shared room' }
+    return { success: false, error: String(error) }
   }
 }
 

@@ -162,20 +162,28 @@ function useTheme() {
 }
 
 // ---------- Events hook ----------
+// The session_id is the user's permanent DB identity (stored in localStorage).
+// The recovery key IS the session_id — so restoring means swapping session_id
+// to a previously saved value, then reloading.
 function useEvents() {
   const [events, setEvents] = useState<CountdownEvent[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [sessionId] = useState(() => {
-    // Generate a persistent session ID stored in localStorage (survives reloads)
     if (typeof window !== 'undefined') {
       let sid = localStorage.getItem('countdown_session_id');
       if (!sid) {
-        sid = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        // Generate a short, memorable ID that also serves as the recovery key
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        const part1 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+        const part2 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+        const part3 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+        sid = `${part1}-${part2}-${part3}`;
         localStorage.setItem('countdown_session_id', sid);
+        localStorage.setItem('waiting_for_recovery_key', sid);
       }
       return sid;
     }
-    return `session_${Date.now()}`;
+    return '';
   });
 
   useEffect(() => {
@@ -280,7 +288,7 @@ function useEvents() {
     await persist(events.filter((e) => e.id !== id));
   };
 
-  return { events, loaded, addEvent, updateEvent, deleteEvent };
+  return { events, loaded, addEvent, updateEvent, deleteEvent, sessionId };
 }
 
 // ---------- Photo Picker Button ----------
@@ -1421,7 +1429,7 @@ function SettingsScreen({
 // ---------- Main App ----------
 export default function WaitingForApp() {
   const { isDark, mode, setThemeMode } = useTheme();
-  const { events, loaded, addEvent, updateEvent, deleteEvent } = useEvents();
+  const { events, loaded, addEvent, updateEvent, deleteEvent, sessionId } = useEvents();
   const [view, setView] = useState<View>("home");
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category | "all">("all");
@@ -1429,22 +1437,6 @@ export default function WaitingForApp() {
   const [joinModalOpen, setJoinModalOpen] = useState(false);
   const [showRecoveryKey, setShowRecoveryKey] = useState(false);
   const [showRestoreKey, setShowRestoreKey] = useState(false);
-
-  // Initialize recovery key on mount
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const existing = localStorage.getItem('waiting_for_recovery_key');
-      if (!existing) {
-        const key = `${Math.random().toString(36).substring(2, 8).toUpperCase()}-${['STAR', 'MOON', 'SUN', 'BIRD', 'FISH', 'TREE', 'WIND', 'FIRE'][Math.floor(Math.random() * 8)]}`;
-        localStorage.setItem('waiting_for_recovery_key', key);
-        console.log('[v0] Recovery key created:', key);
-      }
-      if (!localStorage.getItem('waiting_for_device_id')) {
-        localStorage.setItem('waiting_for_device_id', `device_${Date.now()}_${Math.random().toString(36).substring(7)}`);
-        console.log('[v0] Device ID created');
-      }
-    }
-  }, []);
 
   const filterByCategory = (events: CountdownEvent[]) => {
     if (selectedCategory === "all") return events;
