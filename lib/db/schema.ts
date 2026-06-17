@@ -91,3 +91,18 @@ export const shared_rooms = pgTable('shared_rooms', {
   created_at: timestamp('created_at').notNull().defaultNow(),
   updated_at: timestamp('updated_at').notNull().defaultNow(),
 })
+
+export const countdown_events = pgTable('countdown_events', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  emoji: text('emoji').notNull(),
+  event_date: timestamp('event_date').notNull(),
+  notes: text('notes'),
+  photo: text('photo'),
+  category: text('category'),
+  recurring: text('recurring'),
+  color: text('color'),
+  session_id: text('session_id').notNull(),
+  created_at: timestamp('created_at').notNull().defaultNow(),
+  updated_at: timestamp('updated_at').notNull().defaultNow(),
+})

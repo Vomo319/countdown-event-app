@@ -1,7 +1,8 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { sql } from 'drizzle-orm'
+import { countdown_events } from '@/lib/db/schema'
+import { eq, and, desc } from 'drizzle-orm'
 
 export interface CountdownEventData {
   id: string
@@ -23,20 +24,39 @@ export async function saveEvent(data: Omit<CountdownEventData, 'createdAt'>, ses
       return { success: false, error: 'Invalid event data' }
     }
 
-    const result = await db.execute(
-      sql`INSERT INTO countdown_events (id, title, emoji, event_date, notes, photo, category, recurring, color, session_id, created_at, updated_at)
-          VALUES (${data.id}, ${data.title}, ${data.emoji}, ${data.eventDate}, ${data.notes || null}, ${data.photo || null}, ${data.category || null}, ${data.recurring || null}, ${data.color || null}, ${sessionId}, NOW(), NOW())
-          ON CONFLICT (id) DO UPDATE SET
-            title = EXCLUDED.title,
-            emoji = EXCLUDED.emoji,
-            event_date = EXCLUDED.event_date,
-            notes = EXCLUDED.notes,
-            photo = EXCLUDED.photo,
-            category = EXCLUDED.category,
-            recurring = EXCLUDED.recurring,
-            color = EXCLUDED.color,
-            updated_at = NOW()`
-    )
+    // Check if event exists
+    const existing = await db.select().from(countdown_events).where(eq(countdown_events.id, data.id))
+    
+    if (existing.length > 0) {
+      // Update existing
+      await db.update(countdown_events).set({
+        title: data.title,
+        emoji: data.emoji,
+        event_date: data.eventDate,
+        notes: data.notes,
+        photo: data.photo,
+        category: data.category,
+        recurring: data.recurring,
+        color: data.color,
+        updated_at: new Date(),
+      }).where(eq(countdown_events.id, data.id))
+    } else {
+      // Insert new
+      await db.insert(countdown_events).values({
+        id: data.id,
+        title: data.title,
+        emoji: data.emoji,
+        event_date: data.eventDate,
+        notes: data.notes,
+        photo: data.photo,
+        category: data.category,
+        recurring: data.recurring,
+        color: data.color,
+        session_id: sessionId,
+        created_at: new Date(),
+        updated_at: new Date(),
+      })
+    }
     
     console.log('[v0] Event saved successfully:', data.id)
     return { success: true, data }
@@ -53,14 +73,9 @@ export async function getEvents(sessionId: string) {
       return { success: false, error: 'Session not found', events: [] }
     }
 
-    const result = await db.execute(
-      sql`SELECT id, title, emoji, event_date, notes, photo, category, recurring, color, created_at
-          FROM countdown_events
-          WHERE session_id = ${sessionId}
-          ORDER BY event_date ASC`
-    )
+    const rows = await db.select().from(countdown_events).where(eq(countdown_events.session_id, sessionId))
     
-    const events = (result as any[]).map((row: any) => ({
+    const events = rows.map((row: any) => ({
       id: row.id,
       title: row.title,
       emoji: row.emoji,
@@ -73,7 +88,7 @@ export async function getEvents(sessionId: string) {
       createdAt: new Date(row.created_at).toISOString()
     }))
     
-    console.log(`[v0] Loaded ${events.length} events for session:`, sessionId.substring(0, 10))
+    console.log(`[v0] Loaded ${events.length} events for session: default_session`)
     return { success: true, events }
   } catch (error) {
     console.error('[v0] Failed to fetch events:', error)
@@ -87,8 +102,11 @@ export async function deleteEvent(id: string, sessionId: string) {
       return { success: false, error: 'Invalid parameters' }
     }
 
-    await db.execute(
-      sql`DELETE FROM countdown_events WHERE id = ${id} AND session_id = ${sessionId}`
+    await db.delete(countdown_events).where(
+      and(
+        eq(countdown_events.id, id),
+        eq(countdown_events.session_id, sessionId)
+      )
     )
     
     console.log('[v0] Event deleted:', id)
