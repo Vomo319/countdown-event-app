@@ -109,6 +109,8 @@ export async function copySharedEventToUser(roomCode: string, recipientUserId: s
       category: room.category || null,
       color: room.color || null,
       userId: recipientUserId,
+      isJoined: true,
+      sharedFromUserId: room.creator_id,
       notes: `Shared by ${room.creator_id}`,
       created_at: new Date(),
       updated_at: new Date(),

@@ -34,6 +34,8 @@ interface CountdownEvent {
   recurring?: Recurrence;
   photo?: string; // base64 data URL
   color?: string; // hex color override
+  isJoined?: boolean; // true if event was joined from shared room
+  sharedFromUserId?: string; // ID of user who shared this event
 }
 
 type ThemeMode = "light" | "dark" | "system";
@@ -296,44 +298,84 @@ function PhotoPickerButton({
   onPhotoRemove,
 }: {
   photo?: string;
-  onPhotoSelect: (dataUrl: string) => void;
+  onPhotoSelect: (blobUrl: string) => void;
   onPhotoRemove: () => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 4 * 1024 * 1024) {
-      alert("Photo must be smaller than 4MB");
-      return;
-    }
+    setError(null);
+    setUploading(true);
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      onPhotoSelect(dataUrl);
-    };
-    reader.readAsDataURL(file);
+    try {
+      // Validate file
+      if (!file.type.startsWith('image/')) {
+        setError('Please select an image file');
+        return;
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        setError('Image must be smaller than 5MB');
+        return;
+      }
+
+      // Upload to Blob
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        setError(data.error || 'Upload failed');
+        return;
+      }
+
+      const { url } = await response.json();
+      onPhotoSelect(url);
+      setError(null);
+    } catch (err) {
+      console.error('[v0] Upload error:', err);
+      setError('Failed to upload image');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   };
 
   if (photo) {
     return (
-      <div className="relative">
-        <img src={photo} alt="Event cover" className="w-full h-[144px] rounded-[14px] object-cover" />
-        <button
-          onClick={() => onPhotoRemove()}
-          className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center text-white text-[16px]"
-        >
-          ×
-        </button>
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="absolute bottom-2 right-2 px-3 py-1.5 rounded-[8px] bg-black/50 text-white text-[12px] font-medium"
-        >
-          Change
-        </button>
+      <div className="relative group">
+        <img 
+          src={photo} 
+          alt="Event cover" 
+          className="w-full h-[144px] rounded-[14px] object-cover" 
+        />
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 rounded-[14px] transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="px-3 py-1.5 rounded-[8px] bg-white text-black text-[12px] font-medium hover:bg-gray-100 disabled:opacity-50"
+          >
+            {uploading ? 'Uploading...' : 'Change'}
+          </button>
+          <button
+            onClick={() => onPhotoRemove()}
+            className="px-3 py-1.5 rounded-[8px] bg-red-500 text-white text-[12px] font-medium hover:bg-red-600"
+          >
+            Remove
+          </button>
+        </div>
       </div>
     );
   }
@@ -342,16 +384,23 @@ function PhotoPickerButton({
     <>
       <button
         onClick={() => fileInputRef.current?.click()}
-        className="w-full py-8 border-2 border-dashed border-[var(--border)] rounded-[14px] flex flex-col items-center justify-center gap-2 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-light)]"
+        disabled={uploading}
+        className="w-full py-8 border-2 border-dashed border-[var(--border)] rounded-[14px] flex flex-col items-center justify-center gap-2 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-light)] disabled:opacity-50 disabled:cursor-wait"
       >
-        <span className="text-[24px]">📷</span>
-        <p className="text-[13px] font-medium text-[var(--text-secondary)]">Add Cover Photo</p>
+        <span className="text-[24px]">{uploading ? '⏳' : '📷'}</span>
+        <p className="text-[13px] font-medium text-[var(--text-secondary)]">
+          {uploading ? 'Uploading...' : 'Add Cover Photo'}
+        </p>
       </button>
+      {error && (
+        <p className="text-[12px] text-red-500 mt-2">{error}</p>
+      )}
       <input
         ref={fileInputRef}
         type="file"
         accept="image/*"
         onChange={handleFileChange}
+        disabled={uploading}
         className="hidden"
       />
     </>
@@ -1431,6 +1480,7 @@ export default function WaitingForApp() {
   const [view, setView] = useState<View>("home");
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category | "all">("all");
+  const [eventFilter, setEventFilter] = useState<"all" | "created" | "joined">("all");
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [joinModalOpen, setJoinModalOpen] = useState(false);
   const [showRecoveryKey, setShowRecoveryKey] = useState(false);
@@ -1441,12 +1491,16 @@ export default function WaitingForApp() {
     return events.filter((e) => (e.category || "personal") === selectedCategory);
   };
 
-  const upcoming = filterByCategory(
-    events.filter((e) => getDaysRemaining(e.eventDate, e.recurring) >= 0 || e.recurring === "yearly")
-  );
-  const past = filterByCategory(
-    events.filter((e) => getDaysRemaining(e.eventDate, e.recurring) < 0 && e.recurring !== "yearly")
-  );
+  const filterByType = (events: CountdownEvent[]) => {
+    if (eventFilter === "all") return events;
+    if (eventFilter === "created") return events.filter((e) => !e.isJoined);
+    if (eventFilter === "joined") return events.filter((e) => e.isJoined);
+    return events;
+  };
+
+  const filteredEvents = filterByType(filterByCategory(events));
+  const upcoming = filteredEvents.filter((e) => getDaysRemaining(e.eventDate, e.recurring) >= 0 || e.recurring === "yearly");
+  const past = filteredEvents.filter((e) => getDaysRemaining(e.eventDate, e.recurring) < 0 && e.recurring !== "yearly");
   const activeEvent = events.find((e) => e.id === activeEventId) ?? null;
 
   const handleAdd = (data: Omit<CountdownEvent, "id" | "createdAt">) => {
@@ -1548,19 +1602,64 @@ export default function WaitingForApp() {
           </div>
 
           {events.length > 0 && (
-            <div className="px-5 py-3 border-b border-[var(--border-subtle)] overflow-x-auto scrollbar-hide">
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setSelectedCategory("all")}
-                  className={`px-3 py-1.5 rounded-[10px] text-[13px] font-medium tracking-tight whitespace-nowrap transition-colors active:scale-90 ${
-                    selectedCategory === "all"
-                      ? "bg-[var(--accent)] text-white shadow-md"
-                      : "bg-[var(--surface-secondary)] text-[var(--text-secondary)] hover:bg-[var(--border)]"
-                  }`}
-                  type="button"
-                >
-                  All
-                </button>
+            <>
+              {/* Event Type Tabs */}
+              {(events.some((e) => e.isJoined) || events.some((e) => !e.isJoined)) && (
+                <div className="px-5 py-2 border-b border-[var(--border-subtle)] flex gap-2 overflow-x-auto scrollbar-none">
+                  <button
+                    onClick={() => setEventFilter("all")}
+                    className={`px-3 py-1.5 rounded-[8px] text-[12px] font-medium tracking-tight whitespace-nowrap transition-colors active:scale-90 ${
+                      eventFilter === "all"
+                        ? "bg-[var(--accent)]/20 text-[var(--accent)] border border-[var(--accent)]"
+                        : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                    }`}
+                    type="button"
+                  >
+                    All
+                  </button>
+                  {events.some((e) => !e.isJoined) && (
+                    <button
+                      onClick={() => setEventFilter("created")}
+                      className={`px-3 py-1.5 rounded-[8px] text-[12px] font-medium tracking-tight whitespace-nowrap transition-colors active:scale-90 ${
+                        eventFilter === "created"
+                          ? "bg-[var(--accent)]/20 text-[var(--accent)] border border-[var(--accent)]"
+                          : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                      }`}
+                      type="button"
+                    >
+                      My Events
+                    </button>
+                  )}
+                  {events.some((e) => e.isJoined) && (
+                    <button
+                      onClick={() => setEventFilter("joined")}
+                      className={`px-3 py-1.5 rounded-[8px] text-[12px] font-medium tracking-tight whitespace-nowrap transition-colors active:scale-90 ${
+                        eventFilter === "joined"
+                          ? "bg-[var(--accent)]/20 text-[var(--accent)] border border-[var(--accent)]"
+                          : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                      }`}
+                      type="button"
+                    >
+                      Joined 👥
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Category Filter */}
+              <div className="px-5 py-3 border-b border-[var(--border-subtle)] overflow-x-auto scrollbar-hide">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSelectedCategory("all")}
+                    className={`px-3 py-1.5 rounded-[10px] text-[13px] font-medium tracking-tight whitespace-nowrap transition-colors active:scale-90 ${
+                      selectedCategory === "all"
+                        ? "bg-[var(--accent)] text-white shadow-md"
+                        : "bg-[var(--surface-secondary)] text-[var(--text-secondary)] hover:bg-[var(--border)]"
+                    }`}
+                    type="button"
+                  >
+                    All
+                  </button>
                 {CATEGORIES.map((cat) => (
                   <button
                     key={cat.value}
@@ -1577,7 +1676,8 @@ export default function WaitingForApp() {
                   </button>
                 ))}
               </div>
-            </div>
+              </div>
+            </>
           )}
 
           {!loaded ? null : events.length === 0 ? (

@@ -103,6 +103,8 @@ export const countdown_events = pgTable('countdown_events', {
   recurring: text('recurring'),
   color: text('color'),
   userId: text('userId').notNull(), // Persistent user identity (replaces session_id)
+  isJoined: boolean('isJoined').default(false), // True if event was joined from shared room
+  sharedFromUserId: text('sharedFromUserId'), // ID of user who shared this event
   created_at: timestamp('created_at').notNull().defaultNow(),
   updated_at: timestamp('updated_at').notNull().defaultNow(),
 })
