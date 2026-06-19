@@ -298,84 +298,84 @@ function PhotoPickerButton({
   onPhotoRemove,
 }: {
   photo?: string;
-  onPhotoSelect: (dataUrl: string) => void;
+  onPhotoSelect: (blobUrl: string) => void;
   onPhotoRemove: () => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const compressImage = (dataUrl: string, callback: (compressed: string) => void) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      let width = img.width;
-      let height = img.height;
-      
-      // Limit dimensions to prevent huge base64 strings
-      const maxSize = 800;
-      if (width > height) {
-        if (width > maxSize) {
-          height *= maxSize / width;
-          width = maxSize;
-        }
-      } else {
-        if (height > maxSize) {
-          width *= maxSize / height;
-          height = maxSize;
-        }
-      }
-      
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d")!;
-      ctx.drawImage(img, 0, 0, width, height);
-      
-      // Compress to JPEG with 0.7 quality
-      const compressed = canvas.toDataURL("image/jpeg", 0.7);
-      callback(compressed);
-    };
-    img.src = dataUrl;
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      alert("Photo must be smaller than 10MB");
-      return;
-    }
+    setError(null);
+    setUploading(true);
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      compressImage(dataUrl, (compressed) => {
-        // Check if compressed version is still reasonable size (limit to ~500KB)
-        if (compressed.length > 500 * 1024) {
-          alert("Compressed photo is still too large. Please choose a smaller image.");
-          return;
-        }
-        onPhotoSelect(compressed);
+    try {
+      // Validate file
+      if (!file.type.startsWith('image/')) {
+        setError('Please select an image file');
+        return;
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        setError('Image must be smaller than 5MB');
+        return;
+      }
+
+      // Upload to Blob
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
       });
-    };
-    reader.readAsDataURL(file);
+
+      if (!response.ok) {
+        const data = await response.json();
+        setError(data.error || 'Upload failed');
+        return;
+      }
+
+      const { url } = await response.json();
+      onPhotoSelect(url);
+      setError(null);
+    } catch (err) {
+      console.error('[v0] Upload error:', err);
+      setError('Failed to upload image');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   };
 
   if (photo) {
     return (
-      <div className="relative">
-        <img src={photo} alt="Event cover" className="w-full h-[144px] rounded-[14px] object-cover" />
-        <button
-          onClick={() => onPhotoRemove()}
-          className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/50 flex items-center justify-center text-white text-[16px]"
-        >
-          ×
-        </button>
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="absolute bottom-2 right-2 px-3 py-1.5 rounded-[8px] bg-black/50 text-white text-[12px] font-medium"
-        >
-          Change
-        </button>
+      <div className="relative group">
+        <img 
+          src={photo} 
+          alt="Event cover" 
+          className="w-full h-[144px] rounded-[14px] object-cover" 
+        />
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 rounded-[14px] transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="px-3 py-1.5 rounded-[8px] bg-white text-black text-[12px] font-medium hover:bg-gray-100 disabled:opacity-50"
+          >
+            {uploading ? 'Uploading...' : 'Change'}
+          </button>
+          <button
+            onClick={() => onPhotoRemove()}
+            className="px-3 py-1.5 rounded-[8px] bg-red-500 text-white text-[12px] font-medium hover:bg-red-600"
+          >
+            Remove
+          </button>
+        </div>
       </div>
     );
   }
@@ -384,16 +384,23 @@ function PhotoPickerButton({
     <>
       <button
         onClick={() => fileInputRef.current?.click()}
-        className="w-full py-8 border-2 border-dashed border-[var(--border)] rounded-[14px] flex flex-col items-center justify-center gap-2 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-light)]"
+        disabled={uploading}
+        className="w-full py-8 border-2 border-dashed border-[var(--border)] rounded-[14px] flex flex-col items-center justify-center gap-2 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-light)] disabled:opacity-50 disabled:cursor-wait"
       >
-        <span className="text-[24px]">📷</span>
-        <p className="text-[13px] font-medium text-[var(--text-secondary)]">Add Cover Photo</p>
+        <span className="text-[24px]">{uploading ? '⏳' : '📷'}</span>
+        <p className="text-[13px] font-medium text-[var(--text-secondary)]">
+          {uploading ? 'Uploading...' : 'Add Cover Photo'}
+        </p>
       </button>
+      {error && (
+        <p className="text-[12px] text-red-500 mt-2">{error}</p>
+      )}
       <input
         ref={fileInputRef}
         type="file"
         accept="image/*"
         onChange={handleFileChange}
+        disabled={uploading}
         className="hidden"
       />
     </>
