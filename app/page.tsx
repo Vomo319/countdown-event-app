@@ -34,6 +34,8 @@ interface CountdownEvent {
   recurring?: Recurrence;
   photo?: string; // base64 data URL
   color?: string; // hex color override
+  isJoined?: boolean; // true if event was joined from shared room
+  sharedFromUserId?: string; // ID of user who shared this event
 }
 
 type ThemeMode = "light" | "dark" | "system";
@@ -1471,6 +1473,7 @@ export default function WaitingForApp() {
   const [view, setView] = useState<View>("home");
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category | "all">("all");
+  const [eventFilter, setEventFilter] = useState<"all" | "created" | "joined">("all");
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [joinModalOpen, setJoinModalOpen] = useState(false);
   const [showRecoveryKey, setShowRecoveryKey] = useState(false);
@@ -1481,12 +1484,16 @@ export default function WaitingForApp() {
     return events.filter((e) => (e.category || "personal") === selectedCategory);
   };
 
-  const upcoming = filterByCategory(
-    events.filter((e) => getDaysRemaining(e.eventDate, e.recurring) >= 0 || e.recurring === "yearly")
-  );
-  const past = filterByCategory(
-    events.filter((e) => getDaysRemaining(e.eventDate, e.recurring) < 0 && e.recurring !== "yearly")
-  );
+  const filterByType = (events: CountdownEvent[]) => {
+    if (eventFilter === "all") return events;
+    if (eventFilter === "created") return events.filter((e) => !e.isJoined);
+    if (eventFilter === "joined") return events.filter((e) => e.isJoined);
+    return events;
+  };
+
+  const filteredEvents = filterByType(filterByCategory(events));
+  const upcoming = filteredEvents.filter((e) => getDaysRemaining(e.eventDate, e.recurring) >= 0 || e.recurring === "yearly");
+  const past = filteredEvents.filter((e) => getDaysRemaining(e.eventDate, e.recurring) < 0 && e.recurring !== "yearly");
   const activeEvent = events.find((e) => e.id === activeEventId) ?? null;
 
   const handleAdd = (data: Omit<CountdownEvent, "id" | "createdAt">) => {
@@ -1588,19 +1595,64 @@ export default function WaitingForApp() {
           </div>
 
           {events.length > 0 && (
-            <div className="px-5 py-3 border-b border-[var(--border-subtle)] overflow-x-auto scrollbar-hide">
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setSelectedCategory("all")}
-                  className={`px-3 py-1.5 rounded-[10px] text-[13px] font-medium tracking-tight whitespace-nowrap transition-colors active:scale-90 ${
-                    selectedCategory === "all"
-                      ? "bg-[var(--accent)] text-white shadow-md"
-                      : "bg-[var(--surface-secondary)] text-[var(--text-secondary)] hover:bg-[var(--border)]"
-                  }`}
-                  type="button"
-                >
-                  All
-                </button>
+            <>
+              {/* Event Type Tabs */}
+              {(events.some((e) => e.isJoined) || events.some((e) => !e.isJoined)) && (
+                <div className="px-5 py-2 border-b border-[var(--border-subtle)] flex gap-2 overflow-x-auto scrollbar-none">
+                  <button
+                    onClick={() => setEventFilter("all")}
+                    className={`px-3 py-1.5 rounded-[8px] text-[12px] font-medium tracking-tight whitespace-nowrap transition-colors active:scale-90 ${
+                      eventFilter === "all"
+                        ? "bg-[var(--accent)]/20 text-[var(--accent)] border border-[var(--accent)]"
+                        : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                    }`}
+                    type="button"
+                  >
+                    All
+                  </button>
+                  {events.some((e) => !e.isJoined) && (
+                    <button
+                      onClick={() => setEventFilter("created")}
+                      className={`px-3 py-1.5 rounded-[8px] text-[12px] font-medium tracking-tight whitespace-nowrap transition-colors active:scale-90 ${
+                        eventFilter === "created"
+                          ? "bg-[var(--accent)]/20 text-[var(--accent)] border border-[var(--accent)]"
+                          : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                      }`}
+                      type="button"
+                    >
+                      My Events
+                    </button>
+                  )}
+                  {events.some((e) => e.isJoined) && (
+                    <button
+                      onClick={() => setEventFilter("joined")}
+                      className={`px-3 py-1.5 rounded-[8px] text-[12px] font-medium tracking-tight whitespace-nowrap transition-colors active:scale-90 ${
+                        eventFilter === "joined"
+                          ? "bg-[var(--accent)]/20 text-[var(--accent)] border border-[var(--accent)]"
+                          : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                      }`}
+                      type="button"
+                    >
+                      Joined 👥
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Category Filter */}
+              <div className="px-5 py-3 border-b border-[var(--border-subtle)] overflow-x-auto scrollbar-hide">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSelectedCategory("all")}
+                    className={`px-3 py-1.5 rounded-[10px] text-[13px] font-medium tracking-tight whitespace-nowrap transition-colors active:scale-90 ${
+                      selectedCategory === "all"
+                        ? "bg-[var(--accent)] text-white shadow-md"
+                        : "bg-[var(--surface-secondary)] text-[var(--text-secondary)] hover:bg-[var(--border)]"
+                    }`}
+                    type="button"
+                  >
+                    All
+                  </button>
                 {CATEGORIES.map((cat) => (
                   <button
                     key={cat.value}
@@ -1617,7 +1669,8 @@ export default function WaitingForApp() {
                   </button>
                 ))}
               </div>
-            </div>
+              </div>
+            </>
           )}
 
           {!loaded ? null : events.length === 0 ? (
