@@ -301,19 +301,59 @@ function PhotoPickerButton({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const compressImage = (dataUrl: string, callback: (compressed: string) => void) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      let width = img.width;
+      let height = img.height;
+      
+      // Limit dimensions to prevent huge base64 strings
+      const maxSize = 800;
+      if (width > height) {
+        if (width > maxSize) {
+          height *= maxSize / width;
+          width = maxSize;
+        }
+      } else {
+        if (height > maxSize) {
+          width *= maxSize / height;
+          height = maxSize;
+        }
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // Compress to JPEG with 0.7 quality
+      const compressed = canvas.toDataURL("image/jpeg", 0.7);
+      callback(compressed);
+    };
+    img.src = dataUrl;
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 4 * 1024 * 1024) {
-      alert("Photo must be smaller than 4MB");
+    if (file.size > 10 * 1024 * 1024) {
+      alert("Photo must be smaller than 10MB");
       return;
     }
 
     const reader = new FileReader();
     reader.onload = (event) => {
       const dataUrl = event.target?.result as string;
-      onPhotoSelect(dataUrl);
+      compressImage(dataUrl, (compressed) => {
+        // Check if compressed version is still reasonable size (limit to ~500KB)
+        if (compressed.length > 500 * 1024) {
+          alert("Compressed photo is still too large. Please choose a smaller image.");
+          return;
+        }
+        onPhotoSelect(compressed);
+      });
     };
     reader.readAsDataURL(file);
   };

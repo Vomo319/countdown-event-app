@@ -14,6 +14,8 @@ export interface CountdownEventData {
   category?: string
   recurring?: string
   color?: string
+  isJoined?: boolean
+  sharedFromUserId?: string
 }
 
 /**

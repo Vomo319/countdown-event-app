@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { getSharedRoom, copySharedEventToUser } from '@/app/actions/shared-rooms'
+import { useUserId } from '@/lib/hooks/useUserId'
 
 interface SharedRoom {
   id: string
@@ -21,6 +22,7 @@ export default function SharedRoomPage() {
   const params = useParams()
   const router = useRouter()
   const roomCode = params.code as string
+  const { userId, isReady } = useUserId()
   const [room, setRoom] = useState<SharedRoom | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -52,22 +54,15 @@ export default function SharedRoomPage() {
   }, [roomCode])
 
   const handleCopyToMyCountdowns = async () => {
+    if (!isReady || !userId) {
+      setError('Please wait while we set up your identity...')
+      return
+    }
+
     setCopying(true)
     try {
-      // Get the user's session ID (or create one)
-      let sessionId = localStorage.getItem('countdown_session_id')
-      if (!sessionId) {
-        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-        const part1 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-        const part2 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-        const part3 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-        sessionId = `${part1}-${part2}-${part3}`
-        localStorage.setItem('countdown_session_id', sessionId)
-        localStorage.setItem('waiting_for_recovery_key', sessionId)
-      }
-
-      // Copy the event to the user's account
-      const result = await copySharedEventToUser(roomCode, sessionId)
+      // Copy the event to the user's account using their persistent userId
+      const result = await copySharedEventToUser(roomCode, userId)
       if (result.success) {
         // Show success and redirect to home
         setTimeout(() => {
@@ -192,14 +187,14 @@ export default function SharedRoomPage() {
             </p>
             <button
               onClick={handleCopyToMyCountdowns}
-              disabled={copying}
+              disabled={copying || !isReady || !userId}
               className={`w-full px-6 py-3 rounded-[12px] text-[15px] font-semibold tracking-tight transition-all active:scale-95 ${
-                copying
+                copying || !isReady
                   ? 'bg-[var(--accent)]/50 text-white cursor-wait'
                   : 'bg-[var(--accent)] text-white hover:opacity-90 shadow-md'
               }`}
             >
-              {copying ? '✓ Adding to Countdowns...' : '➕ Add to My Countdowns'}
+              {!isReady ? '⏳ Setting up...' : copying ? '✓ Adding to Countdowns...' : '➕ Add to My Countdowns'}
             </button>
             <p className="text-[11px] text-[var(--text-tertiary)]">
               or{' '}
